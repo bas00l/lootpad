@@ -24,7 +24,7 @@ import {
   MIN_ACTIVITY_SPINS, MIN_ACTIVITY_ADS, WITHDRAWAL_STAR_FEE_PCT,
 } from '../lib/constants.js'
 import type { Rarity } from '../lib/constants.js'
-import { useAdsgram } from '@adsgram/react'
+import createAdHandler from 'monetag-tg-sdk'
 
 export const Route = createFileRoute('/')({ component: SpinPage })
 
@@ -45,16 +45,8 @@ async function buildDeviceFingerprint(): Promise<string> {
   }
 }
 
-function showMonetagAd(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const fn = (window as any)['show_11049772']
-    if (typeof fn !== 'function') {
-      reject(new Error('Monetag SDK not ready'))
-      return
-    }
-    fn().then(resolve).catch(reject)
-  })
-}
+// Monetag rewarded interstitial via official npm package
+const moneTagAdHandler = createAdHandler(11049772)
 
 interface UserState {
   id: number
@@ -738,6 +730,13 @@ export function SpinPage() {
   }, [])
 
   // Call earnSpinsFromAd directly (bypasses stale useServerFn hook closure)
+  // Preload Monetag ad on mount so it shows instantly when tapped
+  useEffect(() => {
+    moneTagAdHandler({ type: 'preload', ymid: tgId })
+      .then(() => setMonetagReady(true))
+      .catch(() => { /* preload failed, will try on tap */ })
+  }, [])
+
   const handleAdRewarded = useCallback((id: string) => {
     earnSpinsFromAd({ data: { telegramId: id } })
       .then((result) => {
@@ -764,11 +763,16 @@ export function SpinPage() {
       .finally(() => setAdLoading(false))
   }, [])
 
-  // @adsgram/react 1.x: show() returns a Promise — resolves on reward, rejects on skip/error
-  // The onReward/onError/onSkip config callbacks are NOT supported in this version
-  const { show: showAdsgramAd } = useAdsgram({
-    blockId: import.meta.env.VITE_ADSGRAM_REWARD_BLOCK_ID,
-  })
+  // Adsgram: init on first use, reuse the controller
+  const adsgramControllerRef = useRef<any>(null)
+  const getAdsgramController = () => {
+    if (!adsgramControllerRef.current) {
+      adsgramControllerRef.current = (window as any).Adsgram?.init({
+        blockId: import.meta.env.VITE_ADSGRAM_REWARD_BLOCK_ID,
+      })
+    }
+    return adsgramControllerRef.current
+  }
 
   const handleSpin = useCallback(async () => {
     if (isSpinning || !user || user.spinsAvailable <= 0) return
@@ -830,13 +834,16 @@ export function SpinPage() {
 
     if (network === 'monetag') {
       try {
-        await showMonetagAd()
+        await moneTagAdHandler({ ymid: tgId })
         handleAdRewarded(tgId)
       } catch {
         // Monetag failed/skipped — always fall back to Adsgram
         try {
-          await showAdsgramAd()
-          handleAdRewarded(tgId)
+          const ctrl = getAdsgramController()
+          if (!ctrl) throw new Error('Adsgram not ready')
+          const result = await ctrl.show()
+          if (result.done) handleAdRewarded(tgId)
+          else setAdLoading(false) // skipped
         } catch {
           setAdLoading(false)
           setError('No ads available right now, try again later')
@@ -844,12 +851,15 @@ export function SpinPage() {
       }
     } else {
       try {
-        await showAdsgramAd()
-        handleAdRewarded(tgId)
+        const ctrl = getAdsgramController()
+        if (!ctrl) throw new Error('Adsgram not ready')
+        const result = await ctrl.show()
+        if (result.done) handleAdRewarded(tgId)
+        else setAdLoading(false) // user skipped — no fallback, no reward
       } catch {
-        // Adsgram failed/no-fill — always fall back to Monetag
+        // Adsgram error/no-fill — fall back to Monetag
         try {
-          await showMonetagAd()
+          await moneTagAdHandler({ ymid: tgId })
           handleAdRewarded(tgId)
         } catch {
           setAdLoading(false)
