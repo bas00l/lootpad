@@ -171,7 +171,7 @@ export const DAILY_QUESTS = [
 // Ad Cooldown
 // ─────────────────────────────────────────────────────────────────────────────
 /** Minimum ms between consecutive ad watches — server-enforced */
-export const AD_COOLDOWN_MS = 30 * 1000   // 30 seconds
+export const AD_COOLDOWN_MS = 5 * 1000   // 30 seconds
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Minimum Activity Gate
