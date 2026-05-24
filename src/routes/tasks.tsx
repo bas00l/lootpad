@@ -9,7 +9,7 @@ function getServerErrMsg(e: unknown, fallback: string): string {
 }
 
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import { getTasks, completeTask, addTask, toggleTask, getAllTasksAdmin } from '../server/tasks.functions.js'
 import { earnSpinsFromAd } from '../server/spin.functions.js'
@@ -62,21 +62,21 @@ const TASK_TYPE_ICON: Record<string, string> = Object.fromEntries(
   TASK_TYPE_OPTIONS.map((o) => [o.value, o.icon])
 )
 
-// ── AdsGram AdController API ─────────────────────────────────────────────────
-// Uses window.Adsgram.init({ blockId }).show() — no web component, full custom UI.
-interface AdController {
-  show: () => Promise<{ done: boolean }>
-  destroy: () => void
-}
+// ── AdsGram Task Blocks ──────────────────────────────────────────────────────
+// task-XXXXX blocks use the <adsgram-task> web component.
+// We render it hidden and project fully custom slots into it so only OUR
+// button/claim/done UI is visible — the component shell stays display:none.
 declare global {
-  interface Window {
-    Adsgram?: {
-      init: (params: { blockId: string; debug?: boolean; debugBanners?: boolean }) => AdController
+  namespace JSX {
+    interface IntrinsicElements {
+      'adsgram-task': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+        'data-block-id'?: string
+        'data-debug'?: string
+      }
     }
   }
 }
 
-// Config for each AdsGram task block
 interface AdsgramTaskConfig {
   blockId: string
   title: string
@@ -87,9 +87,9 @@ interface AdsgramTaskConfig {
 }
 
 function parseAdsgramBlocks(): AdsgramTaskConfig[] {
-  const multiRaw = import.meta.env.VITE_ADSGRAM_TASK_BLOCKS as string | undefined
-  if (multiRaw && multiRaw.trim()) {
-    return multiRaw.split(';').map((entry) => {
+  const raw = import.meta.env.VITE_ADSGRAM_TASK_BLOCKS as string | undefined
+  if (raw && raw.trim()) {
+    return raw.split(';').map((entry) => {
       const [blockId = '', title = 'Sponsored Task', description = 'Watch a short ad to earn rewards', spins = '1', stars = '5', xp = '15'] = entry.split(':')
       return {
         blockId: blockId.trim(),
@@ -97,71 +97,129 @@ function parseAdsgramBlocks(): AdsgramTaskConfig[] {
         description: description.trim(),
         spinsReward: parseInt(spins, 10) || 1,
         starsReward: parseInt(stars, 10) || 5,
-        xpReward: parseInt(xp, 10) || 15,
+        xpReward:    parseInt(xp,    10) || 15,
       }
     }).filter((c) => c.blockId)
   }
   const single = import.meta.env.VITE_ADSGRAM_TASK_BLOCK_ID as string | undefined
-  if (single && single.trim()) {
-    return [{
-      blockId: single.trim(),
-      title: 'Sponsored Task',
-      description: 'Watch a short ad to earn a free spin',
-      spinsReward: 1,
-      starsReward: 5,
-      xpReward: 15,
-    }]
+  if (single?.trim()) {
+    return [{ blockId: single.trim(), title: 'Sponsored Task', description: 'Watch a short ad to earn a free spin', spinsReward: 1, starsReward: 5, xpReward: 15 }]
   }
   return []
 }
 
-// ── AdsGram Tasks Section ─────────────────────────────────────────────────────
-function AdsgramTasksSection({ tgId, onReward }: {
+// Single task-block card — wraps the web component with fully custom slots
+function AdsgramTaskCard({ cfg, tgId, onReward }: {
+  cfg: AdsgramTaskConfig
   tgId: string
-  onReward: (result: { spinsReward: number; starsReward: number; xpReward: number }) => void
+  onReward: (r: { spinsReward: number; starsReward: number; xpReward: number }) => void
 }) {
-  const blocks = parseAdsgramBlocks()
-  const [claimed, setClaimed] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState<string | null>(null)
+  const ref = useRef<HTMLElement>(null)
   const earnSpinsFn = useServerFn(earnSpinsFromAd)
 
-  const handleStart = async (cfg: AdsgramTaskConfig) => {
-    if (loading === cfg.blockId) return
-    if (!window.Adsgram) {
-      console.warn('AdsGram SDK not loaded')
-      return
-    }
-    setLoading(cfg.blockId)
-    hapticSelect()
-    try {
-      const controller = window.Adsgram.init({
-        blockId: cfg.blockId,
-        debug: import.meta.env.DEV,
-        debugBanners: false,
-      })
-      const result = await controller.show()
-      if (result.done) {
-        // Ad was fully watched — credit server-side
-        try {
-          await earnSpinsFn({ data: { telegramId: tgId } })
-        } catch (e) {
-          // Cooldown is fine — ad network confirmed completion
-          const msg = e instanceof Error ? e.message : ''
-          if (!msg.startsWith('AD_COOLDOWN:')) throw e
-        }
-        setClaimed((prev) => new Set(prev).add(cfg.blockId))
-        onReward({ spinsReward: cfg.spinsReward, starsReward: cfg.starsReward, xpReward: cfg.xpReward })
-        hapticSuccess()
-      }
-    } catch (e) {
-      // User dismissed or no fill — silently ignore
-      console.warn('AdsGram task dismissed/no fill:', e)
-      hapticError()
-    } finally {
-      setLoading(null)
-    }
-  }
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
 
+    const onRewardEvt = async () => {
+      try {
+        await earnSpinsFn({ data: { telegramId: tgId } })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : ''
+        if (!msg.startsWith('AD_COOLDOWN:')) console.warn('earnSpins error:', msg)
+      }
+      onReward({ spinsReward: cfg.spinsReward, starsReward: cfg.starsReward, xpReward: cfg.xpReward })
+      hapticSuccess()
+    }
+    const onErrEvt = (e: Event) => {
+      console.warn('AdsGram task error', cfg.blockId, (e as CustomEvent).detail)
+      hapticError()
+    }
+
+    el.addEventListener('reward', onRewardEvt)
+    el.addEventListener('onError', onErrEvt)
+    return () => {
+      el.removeEventListener('reward', onRewardEvt)
+      el.removeEventListener('onError', onErrEvt)
+    }
+  }, [cfg.blockId, tgId])
+
+  return (
+    <div
+      className="card p-3"
+      style={{ border: '1px solid #f59e0b30' }}
+    >
+      <div className="flex items-center gap-3">
+        {/* Icon */}
+        <div
+          className="flex items-center justify-center rounded-xl flex-shrink-0"
+          style={{ width: 44, height: 44, background: '#2d1800', border: '1px solid #f59e0b50', fontSize: '1.4rem' }}
+        >
+          📺
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <p className="font-semibold text-sm text-white leading-tight truncate">{cfg.title}</p>
+            <span style={{ background: '#2d1800', color: '#f59e0b', fontSize: '0.5rem', letterSpacing: '0.05em', padding: '2px 5px', borderRadius: 4, fontWeight: 700, flexShrink: 0 }}>AD</span>
+          </div>
+          <p className="text-xs text-gray-400 leading-tight">{cfg.description}</p>
+          <div className="flex items-center gap-2 mt-1.5">
+            {cfg.spinsReward > 0 && <span className="text-blue-400 text-xs font-bold">+{cfg.spinsReward} 🎫</span>}
+            {cfg.starsReward > 0 && <span className="text-yellow-400 text-xs font-bold">+{cfg.starsReward} ⭐</span>}
+            {cfg.xpReward > 0 && <span className="text-purple-400 text-xs font-bold">+{cfg.xpReward} XP</span>}
+            <span className="text-gray-600 text-xs">· repeatable</span>
+          </div>
+        </div>
+
+        {/* The web component — shell is hidden, only the slotted buttons show */}
+        <div className="flex-shrink-0">
+          <adsgram-task
+            ref={ref as React.RefObject<HTMLElement>}
+            data-block-id={cfg.blockId}
+            data-debug={import.meta.env.DEV ? 'true' : 'false'}
+            style={{ display: 'contents' }}
+          >
+            {/* Slot: initial Go button */}
+            <button
+              slot="button"
+              className="px-3 py-2 rounded-xl text-xs font-bold transition-all active:scale-95"
+              style={{ background: 'linear-gradient(135deg, #92400e, #b45309)', color: '#fef3c7', border: '1px solid #f59e0b80', minWidth: 72 }}
+            >
+              ▶ Watch
+            </button>
+            {/* Slot: claim after watching */}
+            <button
+              slot="claim"
+              className="px-3 py-2 rounded-xl text-xs font-bold transition-all active:scale-95"
+              style={{ background: 'linear-gradient(135deg, #14532d, #15803d)', color: '#bbf7d0', border: '1px solid #16a34a80', minWidth: 72 }}
+            >
+              ✓ Claim
+            </button>
+            {/* Slot: done state */}
+            <div
+              slot="done"
+              className="px-3 py-2 rounded-xl text-xs font-bold"
+              style={{ background: '#1a3a1a', color: '#4ade80', border: '1px solid #16a34a50', minWidth: 72, textAlign: 'center' }}
+            >
+              ✅ Done
+            </div>
+            {/* Slot: reward label (hidden visually but required by component) */}
+            <span slot="reward" style={{ display: 'none' }}>reward</span>
+          </adsgram-task>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── AdsGram Tasks Section — renders all blocks stacked ───────────────────────
+function AdsgramTasksSection({ tgId, onReward }: {
+  tgId: string
+  onReward: (r: { spinsReward: number; starsReward: number; xpReward: number }) => void
+}) {
+  const blocks = parseAdsgramBlocks()
   if (blocks.length === 0) return null
 
   return (
@@ -170,81 +228,14 @@ function AdsgramTasksSection({ tgId, onReward }: {
         📺 Sponsored Tasks
       </p>
       <div className="flex flex-col gap-2">
-        {blocks.map((cfg) => {
-          const isDone = claimed.has(cfg.blockId)
-          const isLoading = loading === cfg.blockId
-          return (
-            <div
-              key={cfg.blockId}
-              className="card p-3 transition-all"
-              style={{
-                border: isDone ? '1px solid #16a34a50' : '1px solid #f59e0b30',
-                opacity: isDone ? 0.65 : 1,
-              }}
-            >
-              <div className="flex items-center gap-3">
-                {/* Icon */}
-                <div
-                  className="flex items-center justify-center rounded-xl flex-shrink-0"
-                  style={{
-                    width: 44, height: 44,
-                    background: isDone ? '#1a3a1a' : '#2d1800',
-                    border: `1px solid ${isDone ? '#16a34a50' : '#f59e0b50'}`,
-                    fontSize: '1.4rem',
-                  }}
-                >
-                  {isDone ? '✅' : isLoading ? '⏳' : '📺'}
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    <p className="font-semibold text-sm text-white leading-tight truncate">{cfg.title}</p>
-                    <span
-                      className="text-xs px-1.5 py-0.5 rounded font-bold flex-shrink-0"
-                      style={{ background: '#2d1800', color: '#f59e0b', fontSize: '0.5rem', letterSpacing: '0.05em' }}
-                    >
-                      AD
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-400 leading-tight">{cfg.description}</p>
-                  <div className="flex items-center gap-2 mt-1.5">
-                    {cfg.spinsReward > 0 && <span className="text-blue-400 text-xs font-bold">+{cfg.spinsReward} 🎫</span>}
-                    {cfg.starsReward > 0 && <span className="text-yellow-400 text-xs font-bold">+{cfg.starsReward} ⭐</span>}
-                    {cfg.xpReward > 0 && <span className="text-purple-400 text-xs font-bold">+{cfg.xpReward} XP</span>}
-                    <span className="text-gray-600 text-xs">· repeatable</span>
-                  </div>
-                </div>
-
-                {/* Action */}
-                {isDone ? (
-                  <div
-                    className="flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold"
-                    style={{ background: '#1a3a1a', color: '#4ade80', border: '1px solid #16a34a50' }}
-                  >
-                    ✓ Done
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => handleStart(cfg)}
-                    disabled={isLoading}
-                    className="flex-shrink-0 px-3 py-2 rounded-xl text-xs font-bold transition-all active:scale-95"
-                    style={{
-                      background: isLoading
-                        ? '#1a1a2e'
-                        : 'linear-gradient(135deg, #92400e, #b45309)',
-                      color: isLoading ? '#6b7280' : '#fef3c7',
-                      border: `1px solid ${isLoading ? '#3b3b60' : '#f59e0b80'}`,
-                      minWidth: 72,
-                    }}
-                  >
-                    {isLoading ? '⏳' : '▶ Watch'}
-                  </button>
-                )}
-              </div>
-            </div>
-          )
-        })}
+        {blocks.map((cfg) => (
+          <AdsgramTaskCard
+            key={cfg.blockId}
+            cfg={cfg}
+            tgId={tgId}
+            onReward={onReward}
+          />
+        ))}
       </div>
     </div>
   )
