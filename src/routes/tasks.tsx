@@ -79,6 +79,8 @@ declare global {
 
 interface AdsgramTaskConfig {
   blockId: string
+  title: string
+  description: string
   spinsReward: number
   starsReward: number
   xpReward: number
@@ -88,9 +90,11 @@ function parseAdsgramBlocks(): AdsgramTaskConfig[] {
   const raw = import.meta.env.VITE_ADSGRAM_TASK_BLOCKS as string | undefined
   if (raw && raw.trim()) {
     return raw.split(';').map((entry) => {
-      const [blockId = '', spins = '1', stars = '5', xp = '15'] = entry.split(':')
+      const [blockId = '', title = 'Sponsored Task', description = 'Complete task to earn rewards', spins = '1', stars = '5', xp = '15'] = entry.split(':')
       return {
         blockId: blockId.trim(),
+        title: title.trim(),
+        description: description.trim(),
         spinsReward: parseInt(spins, 10) || 1,
         starsReward: parseInt(stars, 10) || 5,
         xpReward:    parseInt(xp,    10) || 15,
@@ -99,7 +103,7 @@ function parseAdsgramBlocks(): AdsgramTaskConfig[] {
   }
   const single = import.meta.env.VITE_ADSGRAM_TASK_BLOCK_ID as string | undefined
   if (single?.trim()) {
-    return [{ blockId: single.trim(), spinsReward: 1, starsReward: 5, xpReward: 15 }]
+    return [{ blockId: single.trim(), title: 'Sponsored Task', description: 'Complete task to earn a free spin', spinsReward: 1, starsReward: 5, xpReward: 15 }]
   }
   return []
 }
@@ -183,6 +187,7 @@ function AdsgramTaskCard({ cfg, tgId, onReward }: {
               className="px-3 py-2 rounded-xl text-xs font-bold transition-all active:scale-95"
               style={{ background: 'linear-gradient(135deg, #92400e, #b45309)', color: '#fef3c7', border: '1px solid #f59e0b80', minWidth: 72 }}
             >
+              ▶ Complete
             </button>
             {/* Slot: claim after watching */}
             <button
