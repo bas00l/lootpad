@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { db, users, referrals } from '../../db/index.js'
+import { withServerError } from './errors.js'
 import { eq, desc, sql } from 'drizzle-orm'
 import {
   REFERRAL_BONUS_STARS,
@@ -60,7 +61,7 @@ export const initUser = createServerFn({ method: 'POST' })
       deviceFingerprint: z.string().optional(),
     }),
   )
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const existing = await db
       .select()
       .from(users)
@@ -207,18 +208,18 @@ export const initUser = createServerFn({ method: 'POST' })
     }
 
     return newUser
-  })
+  }))
 
 export const getUser = createServerFn({ method: 'GET' })
   .inputValidator(z.object({ telegramId: z.string() }))
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const result = await db
       .select()
       .from(users)
       .where(eq(users.telegramId, data.telegramId))
       .limit(1)
     return result[0] ?? null
-  })
+  }))
 
 // Leaderboard data — computed on the fly from DB
 export const getLeaderboard = createServerFn({ method: 'GET' })
@@ -227,7 +228,7 @@ export const getLeaderboard = createServerFn({ method: 'GET' })
       category: z.enum(['top_inviters', 'highest_streak', 'most_spins', 'weekly_xp', 'top_level']),
     }),
   )
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     let rows: { displayName: string | null; score: number; telegramId: string }[] = []
 
     if (data.category === 'top_inviters') {
@@ -282,4 +283,4 @@ export const getLeaderboard = createServerFn({ method: 'GET' })
       score: r.score,
       telegramId: r.telegramId,
     }))
-  })
+  }))

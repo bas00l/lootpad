@@ -1,3 +1,4 @@
+import { withServerError } from './errors.js'
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { db, users, referrals } from '../../db/index.js'
@@ -5,7 +6,7 @@ import { eq, desc, inArray, and } from 'drizzle-orm'
 
 export const getReferralStats = createServerFn({ method: 'GET' })
   .inputValidator(z.object({ telegramId: z.string() }))
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const userRows = await db
       .select()
       .from(users)
@@ -53,4 +54,4 @@ export const getReferralStats = createServerFn({ method: 'GET' })
       totalSpinsEarned,
       recent,
     }
-  })
+  }))

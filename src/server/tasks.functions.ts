@@ -3,10 +3,11 @@ import { z } from 'zod'
 import { db, users, tasks, taskCompletions, tokenBalances } from '../../db/index.js'
 import { eq, and, sql } from 'drizzle-orm'
 import { getLevelFromXP } from '../lib/constants.js'
+import { withServerError } from './errors.js'
 
 export const getTasks = createServerFn({ method: 'GET' })
   .inputValidator(z.object({ telegramId: z.string() }))
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const userRows = await db
       .select({ id: users.id })
       .from(users)
@@ -30,11 +31,11 @@ export const getTasks = createServerFn({ method: 'GET' })
     return allTasks
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((t) => ({ ...t, completed: completedIds.has(t.id) }))
-  })
+  }))
 
 export const completeTask = createServerFn({ method: 'POST' })
   .inputValidator(z.object({ telegramId: z.string(), taskId: z.number().int() }))
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const userRows = await db
       .select()
       .from(users)
@@ -77,12 +78,11 @@ export const completeTask = createServerFn({ method: 'POST' })
       })
 
     // Award stars + XP + spins
-    const xpReward    = (task as any).xpReward    ?? 0
-    const spinsReward = (task as any).spinsReward ?? 0
+    const xpReward    = task.xpReward    ?? 0
+    const spinsReward = task.spinsReward ?? 0
     const newXP    = user.xp + xpReward
     const newLevel = getLevelFromXP(newXP)
 
-    // Always update user stats including tasksCompleted (used in activity gate)
     await db
       .update(users)
       .set({
@@ -103,4 +103,4 @@ export const completeTask = createServerFn({ method: 'POST' })
       spinsReward,
       newLevel,
     }
-  })
+  }))

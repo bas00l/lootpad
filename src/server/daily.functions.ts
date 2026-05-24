@@ -1,3 +1,4 @@
+import { withServerError } from './errors.js'
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { db, users, tokenBalances } from '../../db/index.js'
@@ -20,7 +21,7 @@ function wasYesterday(d: Date, now: Date) {
 
 export const claimDailyReward = createServerFn({ method: 'POST' })
   .inputValidator(z.object({ telegramId: z.string() }))
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const userRows = await db
       .select()
       .from(users)
@@ -105,11 +106,11 @@ export const claimDailyReward = createServerFn({ method: 'POST' })
       bonusAmount,
       newAchievements: achievements.filter(id => !(user.achievements ?? []).includes(id)),
     }
-  })
+  }))
 
 export const getDailyStatus = createServerFn({ method: 'GET' })
   .inputValidator(z.object({ telegramId: z.string() }))
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const userRows = await db
       .select({ lastDailyAt: users.lastDailyAt, dailyStreak: users.dailyStreak })
       .from(users)
@@ -134,4 +135,4 @@ export const getDailyStatus = createServerFn({ method: 'GET' })
 
     const streakBroken = !wasYesterday(lastDailyAt, now)
     return { canClaim: true, streak: streakBroken ? 0 : dailyStreak, nextClaimIn: 0 }
-  })
+  }))

@@ -1,3 +1,4 @@
+import { withServerError } from './errors.js'
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { db, dbPool, users, tokenBalances, spinHistory, activityFeed, tokenSinkLedger, referrals } from '../../db/index.js'
@@ -136,7 +137,7 @@ export const spinWheel = createServerFn({ method: 'POST' })
       useLuckyCharm: z.boolean().optional(),
     }),
   )
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const userRows = await db
       .select()
       .from(users)
@@ -263,13 +264,13 @@ export const spinWheel = createServerFn({ method: 'POST' })
       boostUsed: boostActive,
       charmUsed: charmActive,
     }
-  })
+  }))
 
 // ── getSpinStatus ────────────────────────────────────────────────────────────
 
 export const getSpinStatus = createServerFn({ method: 'GET' })
   .inputValidator(z.object({ telegramId: z.string() }))
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const userRows = await db
       .select({
         lastSpinAt: users.lastSpinAt,
@@ -296,13 +297,13 @@ export const getSpinStatus = createServerFn({ method: 'GET' })
     const elapsed = Date.now() - u.lastSpinAt.getTime()
     const remaining = Math.max(0, Math.ceil((SPIN_COOLDOWN_MS - elapsed) / 1000))
     return { canSpin: false, spinsAvailable: 0, cooldownRemaining: remaining, adCooldownRemaining }
-  })
+  }))
 
 // ── earnSpinsFromAd ──────────────────────────────────────────────────────────
 
 export const earnSpinsFromAd = createServerFn({ method: 'POST' })
   .inputValidator(z.object({ telegramId: z.string() }))
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const userRows = await db
       .select()
       .from(users)
@@ -354,13 +355,13 @@ export const earnSpinsFromAd = createServerFn({ method: 'POST' })
       newLevel,
       adsWatched: newAdsWatched,
     }
-  })
+  }))
 
 // ── purchaseSpinBoost ─────────────────────────────────────────────────────────
 
 export const purchaseSpinBoost = createServerFn({ method: 'POST' })
   .inputValidator(z.object({ telegramId: z.string() }))
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const userRows = await db.select().from(users).where(eq(users.telegramId, data.telegramId)).limit(1)
     if (!userRows.length) throw new Error('User not found')
     const user = userRows[0]
@@ -382,13 +383,13 @@ export const purchaseSpinBoost = createServerFn({ method: 'POST' })
     })
 
     return { newStars: user.stars - SPIN_BOOST_COST_STARS, cost: SPIN_BOOST_COST_STARS }
-  })
+  }))
 
 // ── purchaseLuckyCharm ────────────────────────────────────────────────────────
 
 export const purchaseLuckyCharm = createServerFn({ method: 'POST' })
   .inputValidator(z.object({ telegramId: z.string() }))
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const userRows = await db.select().from(users).where(eq(users.telegramId, data.telegramId)).limit(1)
     if (!userRows.length) throw new Error('User not found')
     const user = userRows[0]
@@ -410,7 +411,7 @@ export const purchaseLuckyCharm = createServerFn({ method: 'POST' })
     })
 
     return { newStars: user.stars - LUCKY_CHARM_COST_STARS, cost: LUCKY_CHARM_COST_STARS }
-  })
+  }))
 
 // ── Internal: verify referral after referee activity ─────────────────────────
 

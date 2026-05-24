@@ -8,25 +8,34 @@ import * as schema from './schema.js'
  * - `db`     → HTTP driver, used for all normal queries (fast, no cold-start WS overhead)
  * - `dbPool` → WebSocket Pool driver, used only inside db.transaction() calls
  *
- * In your server functions, use `dbPool` when you need transactions:
- *   await dbPool.transaction(async (tx) => { ... })
- *
- * DATABASE_URL format:
+ * DATABASE_URL must be set in Vercel environment variables:
  *   postgresql://user:password@ep-xxx.region.aws.neon.tech/dbname?sslmode=require
  */
 
+if (!process.env.DATABASE_URL) {
+  throw new Error(
+    'DATABASE_URL environment variable is not set. ' +
+    'Add it in Vercel → Project → Settings → Environment Variables.',
+  )
+}
+
 // HTTP driver — for all regular queries
-const sql = neon(process.env.DATABASE_URL!)
+const sql = neon(process.env.DATABASE_URL)
 export const db = drizzleHttp(sql, { schema })
 
 // WebSocket Pool driver — for transactions only
-// ws constructor is conditionally loaded so it doesn't break browser/edge bundles
+// ws polyfill is required in Node.js environments (not needed in edge/browser)
 if (typeof WebSocket === 'undefined') {
-  const { default: ws } = await import('ws')
-  neonConfig.webSocketConstructor = ws
+  try {
+    const { default: ws } = await import('ws')
+    neonConfig.webSocketConstructor = ws
+  } catch {
+    // ws not available — Pool/transactions won't work, but HTTP queries will
+    console.warn('[db] ws package not found; dbPool transactions are unavailable')
+  }
 }
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL! })
+const pool = new Pool({ connectionString: process.env.DATABASE_URL })
 export const dbPool = drizzleWs(pool, { schema })
 
 export * from './schema.js'

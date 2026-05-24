@@ -1,3 +1,4 @@
+import { withServerError } from './errors.js'
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { db, users, tokenBalances, withdrawals, tokenSinkLedger } from '../../db/index.js'
@@ -11,7 +12,7 @@ import { meetsMinimumActivity } from './spin.functions.js'
 
 export const getBalances = createServerFn({ method: 'GET' })
   .inputValidator(z.object({ telegramId: z.string() }))
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const userRows = await db
       .select()
       .from(users)
@@ -30,7 +31,7 @@ export const getBalances = createServerFn({ method: 'GET' })
       token: b.token,
       amount: parseFloat(b.amount),
     }))
-  })
+  }))
 
 export const requestWithdrawal = createServerFn({ method: 'POST' })
   .inputValidator(
@@ -47,7 +48,7 @@ export const requestWithdrawal = createServerFn({ method: 'POST' })
         ),
     }),
   )
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const userRows = await db
       .select()
       .from(users)
@@ -142,11 +143,11 @@ export const requestWithdrawal = createServerFn({ method: 'POST' })
     })
 
     return { success: true, withdrawalId: withdrawal!.id, amount: balance, feeStars }
-  })
+  }))
 
 export const getWithdrawals = createServerFn({ method: 'GET' })
   .inputValidator(z.object({ telegramId: z.string() }))
-  .handler(async ({ data }) => {
+  .handler(({ data }) => withServerError(async () => {
     const userRows = await db
       .select({ id: users.id })
       .from(users)
@@ -162,4 +163,4 @@ export const getWithdrawals = createServerFn({ method: 'GET' })
       .where(eq(withdrawals.userId, userId))
       .orderBy(desc(withdrawals.createdAt))
       .limit(20)
-  })
+  }))
