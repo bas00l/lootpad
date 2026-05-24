@@ -829,33 +829,31 @@ export function SpinPage() {
     adNetworkRef.current = network === 'adsgram' ? 'monetag' : 'adsgram'
 
     if (network === 'monetag') {
-      // Monetag: promise resolves after user watches, rejects if skipped/failed
       try {
         await showMonetagAd()
         handleAdRewarded(tgId)
       } catch {
-        // Monetag failed — fall back to Adsgram
+        // Monetag failed/skipped — always fall back to Adsgram
         try {
-          await showAdsgramAd() // resolves on reward, rejects on skip/error
+          await showAdsgramAd()
           handleAdRewarded(tgId)
         } catch {
-          // User skipped or no fill — no reward, just unblock
           setAdLoading(false)
+          setError('No ads available right now, try again later')
         }
       }
     } else {
-      // Adsgram: show() resolves on reward, rejects on skip/error/no-fill
       try {
         await showAdsgramAd()
         handleAdRewarded(tgId)
       } catch {
-        // Adsgram failed/skipped — fall back to Monetag
+        // Adsgram failed/no-fill — always fall back to Monetag
         try {
           await showMonetagAd()
           handleAdRewarded(tgId)
         } catch {
-          // Both failed or user skipped — no reward, just unblock
           setAdLoading(false)
+          setError('No ads available right now, try again later')
         }
       }
     }
