@@ -1,3 +1,13 @@
+// Error helper: reads TanStack Start's statusMessage before message
+function getServerErrMsg(e: unknown, fallback: string): string {
+  if (e && typeof e === 'object') {
+    const err = e as Record<string, unknown>
+    if (typeof err.statusMessage === 'string' && err.statusMessage) return err.statusMessage
+    if (typeof err.message === 'string' && err.message !== 'HTTPError') return err.message
+  }
+  return fallback
+}
+
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
@@ -64,7 +74,7 @@ function WithdrawPage() {
       setWallet('')
       setSelected(null)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed'
+      const msg = getServerErrMsg(e, 'Failed')
       if (msg.startsWith('MIN_BALANCE:')) {
         setError(`Minimum balance required: ${msg.split(':')[1]}`)
       } else if (msg.startsWith('NOT_ENOUGH_STARS:')) {

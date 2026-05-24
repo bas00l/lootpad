@@ -1,3 +1,13 @@
+// Error helper: reads TanStack Start's statusMessage before message
+function getServerErrMsg(e: unknown, fallback: string): string {
+  if (e && typeof e === 'object') {
+    const err = e as Record<string, unknown>
+    if (typeof err.statusMessage === 'string' && err.statusMessage) return err.statusMessage
+    if (typeof err.message === 'string' && err.message !== 'HTTPError') return err.message
+  }
+  return fallback
+}
+
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
@@ -112,7 +122,7 @@ function TasksPage() {
       hapticSuccess()
       setTimeout(() => setJustDone(null), 3000)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed'
+      const msg = getServerErrMsg(e, 'Failed')
       if (msg === 'Already completed') {
         setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, completed: true } : t)))
       } else {

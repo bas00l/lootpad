@@ -1,4 +1,18 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+
+/**
+ * TanStack Start wraps server errors as:
+ *   { status: 500, statusMessage: "<real message>", message: "HTTPError" }
+ * So we read statusMessage first, then fall back to message.
+ */
+function getServerErrMsg(e: unknown, fallback: string): string {
+  if (e && typeof e === 'object') {
+    const err = e as Record<string, unknown>
+    if (typeof err.statusMessage === 'string' && err.statusMessage) return err.statusMessage
+    if (typeof err.message === 'string' && err.message && err.message !== 'HTTPError') return err.message
+  }
+  return fallback
+}
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import { SpinWheel } from '../components/SpinWheel.js'
@@ -360,7 +374,7 @@ function WalletDrawer({
       setWallet('')
       setSelected(null)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed'
+      const msg = getServerErrMsg(e, 'Failed')
       if (msg.startsWith('MIN_BALANCE:')) {
         setError(`Min balance needed: ${msg.split(':')[1]}`)
       } else if (msg.startsWith('NOT_ENOUGH_STARS:')) {
@@ -721,7 +735,7 @@ export function SpinPage() {
         const bals = await getBalsFn({ data: { telegramId: tgId } })
         setBalances(bals)
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load')
+        setError(getServerErrMsg(e, 'Failed to load'))
       } finally {
         setLoading(false)
       }
@@ -750,7 +764,7 @@ export function SpinPage() {
         hapticSuccess()
       })
       .catch((e) => {
-        const msg = e instanceof Error ? e.message : 'Failed'
+        const msg = getServerErrMsg(e, 'Failed')
         if (msg.startsWith('AD_COOLDOWN:')) {
           const secs = parseInt(msg.split(':')[1] ?? '30', 10)
           setAdCooldown(secs)
@@ -804,7 +818,7 @@ export function SpinPage() {
       setActiveBoost(false)
       setActiveCharm(false)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Spin failed'
+      const msg = getServerErrMsg(e, 'Spin failed')
       if (!msg.startsWith('NO_SPINS')) setError(msg)
       hapticError()
       setIsSpinning(false)
@@ -885,7 +899,7 @@ export function SpinPage() {
       setActiveBoost(true)
       hapticSuccess()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Purchase failed')
+      setError(getServerErrMsg(e, 'Purchase failed'))
       hapticError()
     } finally {
       setBoostLoading(false)
@@ -902,7 +916,7 @@ export function SpinPage() {
       setActiveCharm(true)
       hapticSuccess()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Purchase failed')
+      setError(getServerErrMsg(e, 'Purchase failed'))
       hapticError()
     } finally {
       setCharmLoading(false)
