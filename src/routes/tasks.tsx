@@ -9,7 +9,7 @@ function getServerErrMsg(e: unknown, fallback: string): string {
 }
 
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import { getTasks, completeTask, addTask, toggleTask, getAllTasksAdmin } from '../server/tasks.functions.js'
 import { earnSpinsFromAd } from '../server/spin.functions.js'
@@ -19,18 +19,6 @@ import { TOKENS } from '../lib/constants.js'
 export const Route = createFileRoute('/tasks')({
   component: TasksPage,
 })
-
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      'adsgram-task': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
-        'data-block-id'?: string
-        'data-debug'?: string
-        'data-debug-console'?: string
-      }
-    }
-  }
-}
 
 interface Task {
   id: number
@@ -74,40 +62,18 @@ const TASK_TYPE_ICON: Record<string, string> = Object.fromEntries(
   TASK_TYPE_OPTIONS.map((o) => [o.value, o.icon])
 )
 
-// ── AdsGram single block widget (raw web component) ─────────────────────────
-function AdsgramTaskWidget({ blockId, onReward, onError }: {
-  blockId: string
-  onReward: () => void
-  onError: (detail: unknown) => void
-}) {
-  const ref = useRef<HTMLElement>(null)
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const handleReward = () => onReward()
-    const handleError = (e: Event) => onError((e as CustomEvent).detail)
-    el.addEventListener('reward', handleReward)
-    el.addEventListener('onError', handleError)
-    return () => {
-      el.removeEventListener('reward', handleReward)
-      el.removeEventListener('onError', handleError)
+// ── AdsGram AdController API ─────────────────────────────────────────────────
+// Uses window.Adsgram.init({ blockId }).show() — no web component, full custom UI.
+interface AdController {
+  show: () => Promise<{ done: boolean }>
+  destroy: () => void
+}
+declare global {
+  interface Window {
+    Adsgram?: {
+      init: (params: { blockId: string; debug?: boolean; debugBanners?: boolean }) => AdController
     }
-  }, [onReward, onError])
-
-  return (
-    <adsgram-task
-      ref={ref as React.RefObject<HTMLElement>}
-      data-block-id={blockId}
-      data-debug={import.meta.env.DEV ? 'true' : 'false'}
-      data-debug-console="false"
-      className="w-full"
-    >
-      <span slot="reward" className="text-yellow-400 font-bold text-xs">+1 🎫 spin · +15 XP</span>
-      <div slot="button" className="btn-primary text-sm py-2">▶ Start Task</div>
-      <div slot="claim" className="btn-primary text-sm py-2">✓ Claim Reward</div>
-      <div slot="done" className="text-green-400 text-xs font-bold">✅ Claimed</div>
-    </adsgram-task>
-  )
+  }
 }
 
 // Config for each AdsGram task block
@@ -115,36 +81,26 @@ interface AdsgramTaskConfig {
   blockId: string
   title: string
   description: string
-  reward: string          // human-readable reward label
   spinsReward: number
   starsReward: number
   xpReward: number
 }
 
-// Parse VITE_ADSGRAM_TASK_BLOCKS env var — semicolon-separated list of
-// "blockId:title:description:spins:stars:xp" tuples.
-// Falls back to the legacy single VITE_ADSGRAM_TASK_BLOCK_ID if not set.
 function parseAdsgramBlocks(): AdsgramTaskConfig[] {
   const multiRaw = import.meta.env.VITE_ADSGRAM_TASK_BLOCKS as string | undefined
   if (multiRaw && multiRaw.trim()) {
     return multiRaw.split(';').map((entry) => {
-      const [blockId = '', title = 'Sponsored Task', description = 'Complete this task to earn rewards', spins = '1', stars = '5', xp = '15'] = entry.split(':')
-      const spinsNum = parseInt(spins, 10) || 1
-      const starsNum = parseInt(stars, 10) || 5
-      const xpNum = parseInt(xp, 10) || 15
+      const [blockId = '', title = 'Sponsored Task', description = 'Watch a short ad to earn rewards', spins = '1', stars = '5', xp = '15'] = entry.split(':')
       return {
         blockId: blockId.trim(),
         title: title.trim(),
         description: description.trim(),
-        spinsReward: spinsNum,
-        starsReward: starsNum,
-        xpReward: xpNum,
-        reward: `+${spinsNum} 🎫 · +${starsNum} ⭐ · +${xpNum} XP`,
+        spinsReward: parseInt(spins, 10) || 1,
+        starsReward: parseInt(stars, 10) || 5,
+        xpReward: parseInt(xp, 10) || 15,
       }
     }).filter((c) => c.blockId)
   }
-
-  // Legacy single block
   const single = import.meta.env.VITE_ADSGRAM_TASK_BLOCK_ID as string | undefined
   if (single && single.trim()) {
     return [{
@@ -154,10 +110,8 @@ function parseAdsgramBlocks(): AdsgramTaskConfig[] {
       spinsReward: 1,
       starsReward: 5,
       xpReward: 15,
-      reward: '+1 🎫 · +5 ⭐ · +15 XP',
     }]
   }
-
   return []
 }
 
@@ -167,27 +121,44 @@ function AdsgramTasksSection({ tgId, onReward }: {
   onReward: (result: { spinsReward: number; starsReward: number; xpReward: number }) => void
 }) {
   const blocks = parseAdsgramBlocks()
-  // Track which blocks have been claimed this session
   const [claimed, setClaimed] = useState<Set<string>>(new Set())
-  const [claiming, setClaiming] = useState<string | null>(null)
+  const [loading, setLoading] = useState<string | null>(null)
   const earnSpinsFn = useServerFn(earnSpinsFromAd)
 
-  const handleReward = async (cfg: AdsgramTaskConfig) => {
-    if (claimed.has(cfg.blockId) || claiming === cfg.blockId) return
-    setClaiming(cfg.blockId)
+  const handleStart = async (cfg: AdsgramTaskConfig) => {
+    if (loading === cfg.blockId) return
+    if (!window.Adsgram) {
+      console.warn('AdsGram SDK not loaded')
+      return
+    }
+    setLoading(cfg.blockId)
+    hapticSelect()
     try {
-      await earnSpinsFn({ data: { telegramId: tgId } })
-      setClaimed((prev) => new Set(prev).add(cfg.blockId))
-      onReward({ spinsReward: cfg.spinsReward, starsReward: cfg.starsReward, xpReward: cfg.xpReward })
-      hapticSuccess()
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : ''
-      // Cooldown errors are fine — still mark reward delivered by ad network
-      if (msg.startsWith('AD_COOLDOWN:')) {
-        onReward({ spinsReward: 0, starsReward: 0, xpReward: 0 })
+      const controller = window.Adsgram.init({
+        blockId: cfg.blockId,
+        debug: import.meta.env.DEV,
+        debugBanners: false,
+      })
+      const result = await controller.show()
+      if (result.done) {
+        // Ad was fully watched — credit server-side
+        try {
+          await earnSpinsFn({ data: { telegramId: tgId } })
+        } catch (e) {
+          // Cooldown is fine — ad network confirmed completion
+          const msg = e instanceof Error ? e.message : ''
+          if (!msg.startsWith('AD_COOLDOWN:')) throw e
+        }
+        setClaimed((prev) => new Set(prev).add(cfg.blockId))
+        onReward({ spinsReward: cfg.spinsReward, starsReward: cfg.starsReward, xpReward: cfg.xpReward })
+        hapticSuccess()
       }
+    } catch (e) {
+      // User dismissed or no fill — silently ignore
+      console.warn('AdsGram task dismissed/no fill:', e)
+      hapticError()
     } finally {
-      setClaiming(null)
+      setLoading(null)
     }
   }
 
@@ -201,74 +172,74 @@ function AdsgramTasksSection({ tgId, onReward }: {
       <div className="flex flex-col gap-2">
         {blocks.map((cfg) => {
           const isDone = claimed.has(cfg.blockId)
+          const isLoading = loading === cfg.blockId
           return (
             <div
               key={cfg.blockId}
               className="card p-3 transition-all"
               style={{
-                border: isDone ? '1px solid #16a34a40' : '1px solid #f59e0b30',
-                opacity: isDone ? 0.6 : 1,
+                border: isDone ? '1px solid #16a34a50' : '1px solid #f59e0b30',
+                opacity: isDone ? 0.65 : 1,
               }}
             >
-              <div className="flex items-start gap-3">
+              <div className="flex items-center gap-3">
                 {/* Icon */}
                 <div
                   className="flex items-center justify-center rounded-xl flex-shrink-0"
                   style={{
-                    width: 40, height: 40,
+                    width: 44, height: 44,
                     background: isDone ? '#1a3a1a' : '#2d1800',
                     border: `1px solid ${isDone ? '#16a34a50' : '#f59e0b50'}`,
-                    fontSize: '1.3rem',
+                    fontSize: '1.4rem',
                   }}
                 >
-                  {isDone ? '✅' : '📺'}
+                  {isDone ? '✅' : isLoading ? '⏳' : '📺'}
                 </div>
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 mb-0.5">
-                    <p className="font-semibold text-sm text-white leading-tight">{cfg.title}</p>
+                    <p className="font-semibold text-sm text-white leading-tight truncate">{cfg.title}</p>
                     <span
                       className="text-xs px-1.5 py-0.5 rounded font-bold flex-shrink-0"
-                      style={{ background: '#2d1800', color: '#f59e0b', fontSize: '0.55rem' }}
+                      style={{ background: '#2d1800', color: '#f59e0b', fontSize: '0.5rem', letterSpacing: '0.05em' }}
                     >
-                      SPONSORED
+                      AD
                     </span>
                   </div>
                   <p className="text-xs text-gray-400 leading-tight">{cfg.description}</p>
-                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                    {cfg.spinsReward > 0 && (
-                      <span className="text-blue-400 text-xs font-bold">+{cfg.spinsReward} 🎫</span>
-                    )}
-                    {cfg.starsReward > 0 && (
-                      <span className="text-yellow-400 text-xs font-bold">+{cfg.starsReward} ⭐</span>
-                    )}
-                    {cfg.xpReward > 0 && (
-                      <span className="text-purple-400 text-xs font-bold">+{cfg.xpReward} XP</span>
-                    )}
+                  <div className="flex items-center gap-2 mt-1.5">
+                    {cfg.spinsReward > 0 && <span className="text-blue-400 text-xs font-bold">+{cfg.spinsReward} 🎫</span>}
+                    {cfg.starsReward > 0 && <span className="text-yellow-400 text-xs font-bold">+{cfg.starsReward} ⭐</span>}
+                    {cfg.xpReward > 0 && <span className="text-purple-400 text-xs font-bold">+{cfg.xpReward} XP</span>}
                     <span className="text-gray-600 text-xs">· repeatable</span>
                   </div>
                 </div>
 
-                {/* AdsGram web component (hidden visually, provides the button logic) */}
-                {!isDone && (
-                  <div className="flex-shrink-0" style={{ minWidth: 80 }}>
-                    <AdsgramTaskWidget
-                      blockId={cfg.blockId}
-                      onReward={() => handleReward(cfg)}
-                      onError={(detail) => {
-                        console.warn('AdsGram task error for block', cfg.blockId, detail)
-                        setClaiming(null)
-                      }}
-                    />
-                  </div>
-                )}
-
-                {isDone && (
-                  <div className="flex-shrink-0 px-2 py-1 rounded-lg text-xs font-bold"
-                    style={{ background: '#1a3a1a', color: '#4ade80', border: '1px solid #16a34a' }}>
+                {/* Action */}
+                {isDone ? (
+                  <div
+                    className="flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold"
+                    style={{ background: '#1a3a1a', color: '#4ade80', border: '1px solid #16a34a50' }}
+                  >
                     ✓ Done
                   </div>
+                ) : (
+                  <button
+                    onClick={() => handleStart(cfg)}
+                    disabled={isLoading}
+                    className="flex-shrink-0 px-3 py-2 rounded-xl text-xs font-bold transition-all active:scale-95"
+                    style={{
+                      background: isLoading
+                        ? '#1a1a2e'
+                        : 'linear-gradient(135deg, #92400e, #b45309)',
+                      color: isLoading ? '#6b7280' : '#fef3c7',
+                      border: `1px solid ${isLoading ? '#3b3b60' : '#f59e0b80'}`,
+                      minWidth: 72,
+                    }}
+                  >
+                    {isLoading ? '⏳' : '▶ Watch'}
+                  </button>
                 )}
               </div>
             </div>
