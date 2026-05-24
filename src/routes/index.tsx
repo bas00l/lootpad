@@ -38,7 +38,8 @@ import {
   MIN_ACTIVITY_SPINS, MIN_ACTIVITY_ADS, WITHDRAWAL_STAR_FEE_PCT,
 } from '../lib/constants.js'
 import type { Rarity } from '../lib/constants.js'
-import createAdHandler from 'monetag-tg-sdk'
+// Monetag SDK is loaded via CDN script tag in __root.tsx
+// The script exposes window.show_XXXXXXX() for rewarded interstitials
 
 export const Route = createFileRoute('/')({ component: SpinPage })
 
@@ -59,8 +60,20 @@ async function buildDeviceFingerprint(): Promise<string> {
   }
 }
 
-// Monetag rewarded interstitial via official npm package
-const moneTagAdHandler = createAdHandler(11049772)
+// Monetag rewarded interstitial — CDN SDK loaded via <script> in __root.tsx.
+// The script injects show_11049772({ ymid?, type? }) into window.
+// Docs: https://docs.monetag.com/docs/ad-integration/rewarded-interstitial/
+const MONETAG_ZONE = 11049772
+type MonetagOpts = { type?: 'preload'; ymid?: string }
+type MonetagShowFn = (opts?: MonetagOpts) => Promise<void>
+
+function moneTagAdHandler(opts?: MonetagOpts): Promise<void> {
+  const showFn = (window as Record<string, unknown>)[`show_${MONETAG_ZONE}`] as MonetagShowFn | undefined
+  if (typeof showFn !== 'function') {
+    return Promise.reject(new Error('Monetag SDK not ready'))
+  }
+  return showFn(opts)
+}
 
 interface UserState {
   id: number
