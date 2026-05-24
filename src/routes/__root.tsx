@@ -14,7 +14,6 @@ export const Route = createRootRoute({
     scripts: [
       { src: 'https://telegram.org/js/telegram-web-app.js' },
       { src: 'https://sad.adsgram.ai/js/sad.min.js' },
-      { src: '//libtl.com/sdk.js', 'data-zone': '11049772', 'data-sdk': 'show_11049772' },
     ],
   }),
   shellComponent: RootDocument,
@@ -25,13 +24,14 @@ function RootDocument({ children }: { children: React.ReactNode }) {
     <html lang="en" className="dark">
       <head>
         <HeadContent />
+        {/* Monetag rewarded interstitial — injected directly so data-zone/data-sdk attrs are preserved */}
+        <script
+          src="//libtl.com/sdk.js"
+          data-zone="11049772"
+          data-sdk="show_11049772"
+        />
       </head>
       <body style={{ margin: 0, background: '#0a0a1a', color: '#e2e8f0', overscrollBehavior: 'none' }}>
-        {/*
-          Max-width container — centred on tablet/desktop, full-width on mobile.
-          pb-0: BottomNav itself inserts a spacer <div> above the fixed bar,
-          so pages don't need a manual padding-bottom.
-        */}
         <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100dvh', position: 'relative' }}>
           {children}
           <BottomNav />

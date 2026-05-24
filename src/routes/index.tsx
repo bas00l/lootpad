@@ -689,7 +689,6 @@ export function SpinPage() {
   const spinWheelFn   = useServerFn(spinWheel)
   const getSpinStatFn = useServerFn(getSpinStatus)
   const getBalsFn     = useServerFn(getBalances)
-  const earnSpinsFn   = useServerFn(earnSpinsFromAd)
   const buyBoostFn    = useServerFn(purchaseSpinBoost)
   const buyCharmFn    = useServerFn(purchaseLuckyCharm)
 
@@ -738,8 +737,9 @@ export function SpinPage() {
     bootstrap()
   }, [])
 
+  // Call earnSpinsFromAd directly (bypasses stale useServerFn hook closure)
   const handleAdRewarded = useCallback((id: string) => {
-    earnSpinsFn({ data: { telegramId: id } })
+    earnSpinsFromAd({ data: { telegramId: id } })
       .then((result) => {
         setUser(u => u ? {
           ...u,
@@ -762,28 +762,12 @@ export function SpinPage() {
         hapticError()
       })
       .finally(() => setAdLoading(false))
-  }, [earnSpinsFn])
+  }, [])
 
-  // Ref so Adsgram callbacks always invoke the latest handleAdRewarded
-  const handleAdRewardedRef = useRef(handleAdRewarded)
-  useEffect(() => { handleAdRewardedRef.current = handleAdRewarded }, [handleAdRewarded])
-
+  // @adsgram/react 1.x: show() returns a Promise — resolves on reward, rejects on skip/error
+  // The onReward/onError/onSkip config callbacks are NOT supported in this version
   const { show: showAdsgramAd } = useAdsgram({
     blockId: import.meta.env.VITE_ADSGRAM_REWARD_BLOCK_ID,
-    onReward: () => handleAdRewardedRef.current(tgId),
-    onError: () => {
-      // Adsgram error/no-fill — fall back to Monetag for this tap
-      showMonetagAd()
-        .then(() => handleAdRewardedRef.current(tgId))
-        .catch(() => {
-          setAdLoading(false)
-          hapticError()
-        })
-    },
-    onSkip: () => {
-      // User dismissed without watching — unblock button
-      setAdLoading(false)
-    },
   })
 
   const handleSpin = useCallback(async () => {
@@ -840,34 +824,39 @@ export function SpinPage() {
     setAdLoading(true)
     hapticSelect()
 
-    // Pick this tap's network then flip for next tap
+    // Alternate networks each tap
     const network = adNetworkRef.current
     adNetworkRef.current = network === 'adsgram' ? 'monetag' : 'adsgram'
 
     if (network === 'monetag') {
-      // Monetag resolves its promise after the user watches the ad
+      // Monetag: promise resolves after user watches, rejects if skipped/failed
       try {
         await showMonetagAd()
         handleAdRewarded(tgId)
       } catch {
         // Monetag failed — fall back to Adsgram
         try {
-          await showAdsgramAd()
-          setTimeout(() => setAdLoading(prev => prev ? false : prev), 300)
+          await showAdsgramAd() // resolves on reward, rejects on skip/error
+          handleAdRewarded(tgId)
         } catch {
+          // User skipped or no fill — no reward, just unblock
           setAdLoading(false)
-          hapticError()
         }
       }
     } else {
-      // Show Adsgram first; onError callback falls back to Monetag automatically
+      // Adsgram: show() resolves on reward, rejects on skip/error/no-fill
       try {
         await showAdsgramAd()
-        // Give onReward / onSkip / onError callbacks time to fire before clearing
-        setTimeout(() => setAdLoading(prev => prev ? false : prev), 300)
+        handleAdRewarded(tgId)
       } catch {
-        setAdLoading(false)
-        hapticError()
+        // Adsgram failed/skipped — fall back to Monetag
+        try {
+          await showMonetagAd()
+          handleAdRewarded(tgId)
+        } catch {
+          // Both failed or user skipped — no reward, just unblock
+          setAdLoading(false)
+        }
       }
     }
   }
