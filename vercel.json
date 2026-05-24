@@ -1,0 +1,29 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".output/public",
+  "installCommand": "npm install",
+  "framework": null,
+  "rewrites": [
+    { "source": "/_server/(.*)", "destination": "/_server/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" },
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org https://sad.adsgram.ai https://libtl.com https://*.libtl.com https://*.monetag.com https://*.propellerads.com; connect-src 'self' wss://*.neon.tech https://*.neon.tech https://*.adsgram.ai https://libtl.com https://*.libtl.com https://*.monetag.com https://*.propellerads.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; frame-src 'self' https://libtl.com https://*.libtl.com https://*.monetag.com https://*.propellerads.com; frame-ancestors 'self' https://web.telegram.org https://telegram.org" }
+      ]
+    },
+    {
+      "source": "/_server/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" }
+      ]
+    }
+  ]
+}

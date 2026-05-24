@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+.vercel/
+.output/
+
+# Environment — NEVER commit secrets
+.env
+.env.local
+.env.*.local
+
+# Drizzle
+drizzle/
+
+# Misc
+.DS_Store
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.vite/
