@@ -1,14 +1,26 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import { getTasks, completeTask } from '../server/tasks.functions.js'
 import { getTelegramUserId, hapticSuccess, hapticError } from '../lib/telegram.js'
 import { TOKENS } from '../lib/constants.js'
-import { AdsgramTask } from '@adsgram/react'
 
 export const Route = createFileRoute('/tasks')({
   component: TasksPage,
 })
+
+// Extend JSX to recognise <adsgram-task> as a valid HTML element
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      'adsgram-task': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+        'data-block-id'?: string
+        'data-debug'?: string
+        'data-debug-console'?: string
+      }
+    }
+  }
+}
 
 interface Task {
   id: number
@@ -20,6 +32,43 @@ interface Task {
   rewardAmount: string
   starsReward: number
   completed: boolean
+}
+
+// Wrapper that attaches the custom-event listeners React can't bind natively on web components
+function AdsgramTaskWidget({ blockId, onReward, onError }: {
+  blockId: string
+  onReward: () => void
+  onError: (detail: unknown) => void
+}) {
+  const ref = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const handleReward = () => onReward()
+    const handleError = (e: Event) => onError((e as CustomEvent).detail)
+    el.addEventListener('reward', handleReward)
+    el.addEventListener('onError', handleError)
+    return () => {
+      el.removeEventListener('reward', handleReward)
+      el.removeEventListener('onError', handleError)
+    }
+  }, [onReward, onError])
+
+  return (
+    <adsgram-task
+      ref={ref as React.RefObject<HTMLElement>}
+      data-block-id={blockId}
+      data-debug={import.meta.env.DEV ? 'true' : 'false'}
+      data-debug-console="false"
+      className="w-full"
+    >
+      <span slot="reward" className="text-yellow-400 font-bold text-xs">+1 🎫 spin</span>
+      <div slot="button" className="btn-primary text-sm py-1.5">Go →</div>
+      <div slot="claim" className="btn-primary text-sm py-1.5">✓ Claim</div>
+      <div slot="done" className="text-green-400 text-xs font-bold">✅ Done</div>
+    </adsgram-task>
+  )
 }
 
 function TasksPage() {
@@ -86,6 +135,8 @@ function TasksPage() {
   const pending = tasks.filter((t) => !t.completed)
   const done = tasks.filter((t) => t.completed)
 
+  const blockId = import.meta.env.VITE_ADSGRAM_TASK_BLOCK_ID as string | undefined
+
   return (
     <div className="page">
       <div className="text-center">
@@ -119,24 +170,15 @@ function TasksPage() {
         </div>
       ) : (
         <>
+          {/* Adsgram sponsored task — only render when blockId is configured */}
+          {blockId && (
+            <AdsgramTaskWidget
+              blockId={blockId}
+              onReward={() => hapticSuccess()}
+              onError={(detail) => console.error('Adsgram task error:', detail)}
+            />
+          )}
 
-          <AdsgramTask
-            blockId={import.meta.env.VITE_ADSGRAM_TASK_BLOCK_ID}
-            data-debug={import.meta.env.DEV ? "true" : "false"}
-            className="w-full"
-            onReward={(e) => {
-              // Adsgram task completed — award spins or stars via server
-              hapticSuccess()
-            }}
-            onError={(e) => {
-              console.error('Adsgram task error:', e.detail)
-            }}
-          >
-            <span slot="reward" className="text-yellow-400 font-bold text-xs">+1 🎫 spin</span>
-            <div slot="button" className="btn-primary text-sm py-1.5">Go →</div>
-            <div slot="claim" className="btn-primary text-sm py-1.5">✓ Claim</div>
-            <div slot="done" className="text-green-400 text-xs font-bold">✅ Done</div>
-          </AdsgramTask>
           {/* Pending tasks */}
           {pending.length > 0 && (
             <div className="flex flex-col gap-2">
