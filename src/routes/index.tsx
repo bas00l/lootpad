@@ -764,13 +764,17 @@ export function SpinPage() {
       .finally(() => setAdLoading(false))
   }, [earnSpinsFn])
 
+  // Ref so Adsgram callbacks always invoke the latest handleAdRewarded
+  const handleAdRewardedRef = useRef(handleAdRewarded)
+  useEffect(() => { handleAdRewardedRef.current = handleAdRewarded }, [handleAdRewarded])
+
   const { show: showAdsgramAd } = useAdsgram({
     blockId: import.meta.env.VITE_ADSGRAM_REWARD_BLOCK_ID,
-    onReward: () => handleAdRewarded(tgId),
+    onReward: () => handleAdRewardedRef.current(tgId),
     onError: () => {
       // Adsgram error/no-fill — fall back to Monetag for this tap
       showMonetagAd()
-        .then(() => handleAdRewarded(tgId))
+        .then(() => handleAdRewardedRef.current(tgId))
         .catch(() => {
           setAdLoading(false)
           hapticError()
@@ -841,14 +845,14 @@ export function SpinPage() {
     adNetworkRef.current = network === 'adsgram' ? 'monetag' : 'adsgram'
 
     if (network === 'monetag') {
-      // Show Monetag first; fall back to Adsgram if it fails
+      // Monetag resolves its promise after the user watches the ad
       try {
         await showMonetagAd()
         handleAdRewarded(tgId)
       } catch {
+        // Monetag failed — fall back to Adsgram
         try {
           await showAdsgramAd()
-          // onReward / onSkip callbacks handle reward + loading state
           setTimeout(() => setAdLoading(prev => prev ? false : prev), 300)
         } catch {
           setAdLoading(false)

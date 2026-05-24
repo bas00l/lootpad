@@ -14,7 +14,7 @@ export const Route = createRootRoute({
     scripts: [
       { src: 'https://telegram.org/js/telegram-web-app.js' },
       { src: 'https://sad.adsgram.ai/js/sad.min.js' },
-      { src: 'https://libtl.com/sdk.js', 'data-zone': '11049772', async: true },
+      { src: '//libtl.com/sdk.js', 'data-zone': '11049772', 'data-sdk': 'show_11049772' },
     ],
   }),
   shellComponent: RootDocument,
