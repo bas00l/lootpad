@@ -590,127 +590,12 @@ function WalletDrawer({
   )
 }
 
-// ── Offerwall Modal ──────────────────────────────────────────────────────────
-function OfferwallModal({ open, onClose, tgId }: { open: boolean; onClose: () => void; tgId: string }) {
-  if (!open) return null
 
-  const offerwalls = [
-    {
-      name: 'AdGem',
-      icon: '💎',
-      description: 'Complete surveys & offers for free spins',
-      color: '#7c3aed',
-      url: `https://adgem.com/offerwall?pub=YOUR_ADGEM_PUB_ID&uid=${tgId}`,
-    },
-    {
-      name: 'CPX Research',
-      icon: '📋',
-      description: 'Take surveys — earn spins & stars',
-      color: '#0088CC',
-      url: `https://offers.cpx-research.com/index.php?app_id=YOUR_CPX_APP_ID&ext_user_id=${tgId}`,
-    },
-    {
-      name: 'Bitlabs',
-      icon: '🔬',
-      description: 'High-paying surveys from top brands',
-      color: '#22c55e',
-      url: `https://api.bitlabs.ai/v1/client/offers?token=YOUR_BITLABS_TOKEN&uid=${tgId}`,
-    },
-    {
-      name: 'Lootably',
-      icon: '🎯',
-      description: 'Play games & apps for rewards',
-      color: '#f59e0b',
-      url: `https://wall.lootably.com/?placementID=YOUR_LOOTABLY_ID&uid=${tgId}`,
-    },
-    {
-      name: 'Ayetstudios',
-      icon: '🎮',
-      description: 'Install apps & play games for spins',
-      color: '#ef4444',
-      url: `https://www.ayetstudios.com/offers/web_offerwall/YOUR_AYETSTUDIOS_ID?external_identifier=${tgId}`,
-    },
-  ]
-
-  return (
-    <>
-      <div
-        onClick={onClose}
-        style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
-          zIndex: 100, backdropFilter: 'blur(4px)',
-        }}
-      />
-      <div
-        style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0,
-          maxWidth: 480, margin: '0 auto',
-          background: '#0d0d1a',
-          borderTop: '2px solid #3b3b70',
-          borderRadius: '24px 24px 0 0',
-          zIndex: 101,
-          maxHeight: '85dvh',
-          overflowY: 'auto',
-          padding: '0 16px 32px',
-        }}
-      >
-        <div className="flex justify-center pt-3 pb-2">
-          <div style={{ width: 40, height: 4, borderRadius: 2, background: '#3b3b70' }} />
-        </div>
-
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-lg font-black shimmer-text">🎰 Offerwalls</h2>
-          <button onClick={onClose} className="text-gray-400 text-xl" style={{ padding: '4px 8px' }}>✕</button>
-        </div>
-        <p className="text-xs text-gray-400 mb-4">Complete offers to earn free spins & stars</p>
-
-        <div className="flex flex-col gap-3">
-          {offerwalls.map((ow) => (
-            <button
-              key={ow.name}
-              onClick={() => window.open(ow.url, '_blank')}
-              className="flex items-center gap-3 rounded-2xl p-3 text-left transition-all active:scale-95"
-              style={{
-                background: '#13132b',
-                border: `1px solid ${ow.color}40`,
-              }}
-            >
-              <div
-                className="flex items-center justify-center rounded-xl flex-shrink-0"
-                style={{
-                  width: 48, height: 48,
-                  background: `${ow.color}20`,
-                  border: `1px solid ${ow.color}40`,
-                  fontSize: '1.5rem',
-                }}
-              >
-                {ow.icon}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-white text-sm">{ow.name}</p>
-                <p className="text-gray-400 text-xs">{ow.description}</p>
-              </div>
-              <span className="text-gray-500 text-lg">›</span>
-            </button>
-          ))}
-        </div>
-
-        <div
-          className="mt-4 rounded-xl p-3 text-xs text-gray-400"
-          style={{ background: '#13132b', border: '1px solid #2e2e60' }}
-        >
-          ℹ️ Spins are credited automatically after offer completion. Contact support if rewards are missing.
-        </div>
-      </div>
-    </>
-  )
-}
 
 // ── SpinCounter ──────────────────────────────────────────────────────────────
 function SpinCounter({
   count, onWatchAd, loading, adCooldown,
   stars, onBuyBoost, onBuyCharm, boostLoading, charmLoading,
-  onOpenOfferwalls,
 }: {
   count: number
   onWatchAd: () => void
@@ -721,7 +606,6 @@ function SpinCounter({
   onBuyCharm: () => void
   boostLoading: boolean
   charmLoading: boolean
-  onOpenOfferwalls: () => void
 }) {
   const adReady = adCooldown <= 0
   return (
@@ -749,7 +633,7 @@ function SpinCounter({
         </button>
       </div>
 
-      {/* Row 2: Boosts + Offerwall */}
+      {/* Row 2: Boosts */}
       <div className="flex gap-2 pt-1 border-t" style={{ borderColor: '#2e2e60' }}>
         <button
           onClick={onBuyBoost}
@@ -775,17 +659,6 @@ function SpinCounter({
         >
           🍀 Charm <span style={{ color: '#fbbf24' }}>({LUCKY_CHARM_COST_STARS}⭐)</span>
         </button>
-        <button
-          onClick={onOpenOfferwalls}
-          className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-xl text-xs font-bold transition-all"
-          style={{
-            background: '#2d1b4e',
-            border: '1px solid #6d28d940',
-            color: '#c4b5fd',
-          }}
-        >
-          🎰 Offers
-        </button>
       </div>
     </div>
   )
@@ -801,6 +674,8 @@ export function SpinPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [adLoading, setAdLoading] = useState(false)
+  // Alternates between 'adsgram' and 'monetag' on each tap
+  const adNetworkRef = useRef<'adsgram' | 'monetag'>('adsgram')
   const [adCooldown, setAdCooldown] = useState(0)
   const [boostLoading, setBoostLoading] = useState(false)
   const [charmLoading, setCharmLoading] = useState(false)
@@ -808,7 +683,6 @@ export function SpinPage() {
   const [activeCharm, setActiveCharm] = useState(false)
   const [showLevelUp, setShowLevelUp] = useState(false)
   const [walletOpen, setWalletOpen] = useState(false)
-  const [offerwallOpen, setOfferwallOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
 
   const initUserFn    = useServerFn(initUser)
@@ -894,13 +768,17 @@ export function SpinPage() {
     blockId: import.meta.env.VITE_ADSGRAM_REWARD_BLOCK_ID,
     onReward: () => handleAdRewarded(tgId),
     onError: () => {
-      // AdsGram had no fill — fall back to Monetag
+      // Adsgram error/no-fill — fall back to Monetag for this tap
       showMonetagAd()
         .then(() => handleAdRewarded(tgId))
         .catch(() => {
           setAdLoading(false)
           hapticError()
         })
+    },
+    onSkip: () => {
+      // User dismissed without watching — unblock button
+      setAdLoading(false)
     },
   })
 
@@ -957,11 +835,36 @@ export function SpinPage() {
     setError(null)
     setAdLoading(true)
     hapticSelect()
-    try {
-      await showAdsgramAd()
-    } catch {
-      setAdLoading(false)
-      hapticError()
+
+    // Pick this tap's network then flip for next tap
+    const network = adNetworkRef.current
+    adNetworkRef.current = network === 'adsgram' ? 'monetag' : 'adsgram'
+
+    if (network === 'monetag') {
+      // Show Monetag first; fall back to Adsgram if it fails
+      try {
+        await showMonetagAd()
+        handleAdRewarded(tgId)
+      } catch {
+        try {
+          await showAdsgramAd()
+          // onReward / onSkip callbacks handle reward + loading state
+          setTimeout(() => setAdLoading(prev => prev ? false : prev), 300)
+        } catch {
+          setAdLoading(false)
+          hapticError()
+        }
+      }
+    } else {
+      // Show Adsgram first; onError callback falls back to Monetag automatically
+      try {
+        await showAdsgramAd()
+        // Give onReward / onSkip / onError callbacks time to fire before clearing
+        setTimeout(() => setAdLoading(prev => prev ? false : prev), 300)
+      } catch {
+        setAdLoading(false)
+        hapticError()
+      }
     }
   }
 
@@ -1118,7 +1021,6 @@ export function SpinPage() {
           onBuyCharm={handleBuyCharm}
           boostLoading={boostLoading}
           charmLoading={charmLoading}
-          onOpenOfferwalls={() => setOfferwallOpen(true)}
         />
 
         {/* ── WHEEL CARD ── */}
@@ -1233,13 +1135,13 @@ export function SpinPage() {
               </button>
             ) : (
               <button className="btn-primary" disabled>
-                🎫 No spins — watch an ad or complete an offer!
+                🎫 No spins — watch an ad!
               </button>
             )}
           </div>
 
           {error && <p className="text-red-400 text-xs text-center">{error}</p>}
-          <p className="text-gray-500 text-xs">+{2} ⭐ +{5} XP per spin • Earn spins via ads, offers & referrals</p>
+          <p className="text-gray-500 text-xs">+{2} ⭐ +{5} XP per spin • Earn spins via ads & referrals</p>
         </div>
 
         {/* ── LIVE ACTIVITY ── */}
@@ -1268,12 +1170,6 @@ export function SpinPage() {
         setStars={(s) => setUser(u => u ? { ...u, stars: s } : u)}
       />
 
-      {/* ── OFFERWALL MODAL ── */}
-      <OfferwallModal
-        open={offerwallOpen}
-        onClose={() => setOfferwallOpen(false)}
-        tgId={tgId}
-      />
     </>
   )
 }
