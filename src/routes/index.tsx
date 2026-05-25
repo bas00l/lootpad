@@ -57,7 +57,30 @@ async function buildDeviceFingerprint(): Promise<string> {
   }
 }
 
-// Ad network: Adsgram only (Monetag passive CPM via MonetagPush component)
+// Ad networks: Adsgram (primary) + Monetag Rewarded Interstitial (secondary)
+// Monetag passive CPM also runs via MonetagPush component in __root.tsx
+
+const MONETAG_ZONE = (import.meta.env.VITE_MONETAG_ZONE_ID as string | undefined)?.trim() ?? '11049772'
+const MONETAG_FN   = `show_${MONETAG_ZONE}`
+type MonetagOpts   = { type?: 'preload'; ymid?: string }
+
+function waitForMonetagSdk(timeoutMs = 8000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (typeof (window as any)[MONETAG_FN] === 'function') { resolve(); return }
+    const start    = Date.now()
+    const interval = setInterval(() => {
+      if (typeof (window as any)[MONETAG_FN] === 'function') {
+        clearInterval(interval); resolve()
+      } else if (Date.now() - start > timeoutMs) {
+        clearInterval(interval); reject(new Error('Monetag SDK not ready'))
+      }
+    }, 150)
+  })
+}
+
+function showMonetagAd(opts?: MonetagOpts): Promise<void> {
+  return waitForMonetagSdk().then(() => (window as any)[MONETAG_FN](opts))
+}
 
 interface UserState {
   id: number
@@ -598,41 +621,66 @@ function WalletDrawer({
 // ── SpinCounter ──────────────────────────────────────────────────────────────
 function SpinCounter({
   count, onWatchAd, loading, adCooldown,
+  onWatchMonetagAd, monetagLoading, monetagCooldown, monetagReady,
   stars, onBuyBoost, onBuyCharm, boostLoading, charmLoading,
 }: {
   count: number
   onWatchAd: () => void
   loading: boolean
   adCooldown: number
+  onWatchMonetagAd: () => void
+  monetagLoading: boolean
+  monetagCooldown: number
+  monetagReady: boolean
   stars: number
   onBuyBoost: () => void
   onBuyCharm: () => void
   boostLoading: boolean
   charmLoading: boolean
 }) {
-  const adReady = adCooldown <= 0
+  const adsgramReady  = adCooldown <= 0
+  const moneTagBtnReady = monetagCooldown <= 0
+
   return (
     <div className="flex flex-col gap-2 rounded-2xl px-4 py-3" style={{ background: '#13132b', border: '1px solid #2e2e60' }}>
-      {/* Row 1: spin count + ad button */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-xl">🎫</span>
-          <div>
-            <p className="text-xs text-gray-400 leading-none mb-0.5">Spins available</p>
-            <p className="font-black text-xl" style={{ color: count > 0 ? '#a78bfa' : '#6b7280', lineHeight: 1 }}>{count}</p>
-          </div>
+      {/* Row 1: spin count */}
+      <div className="flex items-center gap-2">
+        <span className="text-xl">🎫</span>
+        <div>
+          <p className="text-xs text-gray-400 leading-none mb-0.5">Spins available</p>
+          <p className="font-black text-xl" style={{ color: count > 0 ? '#a78bfa' : '#6b7280', lineHeight: 1 }}>{count}</p>
         </div>
+      </div>
+
+      {/* Row 2: two ad buttons side by side */}
+      <div className="flex gap-2">
+        {/* Adsgram */}
         <button
           onClick={onWatchAd}
-          disabled={loading || !adReady}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
+          disabled={loading || !adsgramReady}
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all"
           style={{
-            background: adReady ? '#2d1b4e' : '#1a1a2e',
-            border: `1px solid ${adReady ? '#6d28d9' : '#3b3b60'}`,
-            color: adReady ? '#c4b5fd' : '#6b7280',
+            background: adsgramReady ? '#1a2040' : '#131320',
+            border: `1px solid ${adsgramReady ? '#3b5bdb' : '#2e2e50'}`,
+            color: adsgramReady ? '#93c5fd' : '#6b7280',
           }}
         >
-          {loading ? '⏳ Loading...' : adReady ? '📺 Watch ad +1' : `⏳ ${adCooldown}s`}
+          {loading ? '⏳' : adsgramReady ? '📺 Watch Ad +1' : `⏳ ${adCooldown}s`}
+        </button>
+
+        {/* Monetag */}
+        <button
+          onClick={onWatchMonetagAd}
+          disabled={monetagLoading || !moneTagBtnReady}
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all"
+          style={{
+            background: moneTagBtnReady ? '#2d1b4e' : '#131320',
+            border: `1px solid ${moneTagBtnReady ? '#6d28d9' : '#2e2e50'}`,
+            color: moneTagBtnReady ? '#c4b5fd' : '#6b7280',
+            opacity: (!monetagReady && moneTagBtnReady) ? 0.7 : 1,
+          }}
+        >
+          {monetagLoading ? '⏳' : !moneTagBtnReady ? `⏳ ${monetagCooldown}s` : monetagReady ? '📺 Watch Ad +1' : '📺 Watch Ad +1'}
         </button>
       </div>
 
@@ -678,6 +726,9 @@ export function SpinPage() {
   const [loading, setLoading] = useState(true)
   const [adLoading, setAdLoading] = useState(false)
   const [adCooldown, setAdCooldown] = useState(0)
+  const [monetagLoading, setMonetagLoading] = useState(false)
+  const [monetagCooldown, setMonetagCooldown] = useState(0)
+  const [monetagReady, setMonetagReady] = useState(false)
   const [boostLoading, setBoostLoading] = useState(false)
   const [charmLoading, setCharmLoading] = useState(false)
   const [activeBoost, setActiveBoost] = useState(false)
@@ -846,11 +897,65 @@ export function SpinPage() {
     }
   }
 
+  // Preload Monetag ad on mount so first show is instant
+  useEffect(() => {
+    showMonetagAd({ type: 'preload', ymid: tgId })
+      .then(() => setMonetagReady(true))
+      .catch(() => { /* no fill on preload — will try again on tap */ })
+  }, [])
+
+  const handleWatchMonetagAd = async () => {
+    if (monetagLoading || monetagCooldown > 0) return
+    setError(null)
+    setMonetagLoading(true)
+    hapticSelect()
+    try {
+      await showMonetagAd({ ymid: tgId })
+      // Ad completed — grant reward
+      earnSpinsFromAd({ data: { telegramId: tgId } })
+        .then((result) => {
+          setUser(u => u ? {
+            ...u,
+            spinsAvailable: result.newSpinsAvailable,
+            xp: result.newXP,
+            level: result.newLevel,
+          } : u)
+          setMonetagCooldown(5)
+          hapticSuccess()
+          // Re-preload for next tap
+          showMonetagAd({ type: 'preload', ymid: tgId })
+            .then(() => setMonetagReady(true))
+            .catch(() => setMonetagReady(false))
+        })
+        .catch((e) => {
+          const msg = getServerErrMsg(e, 'Failed')
+          if (msg.startsWith('AD_COOLDOWN:')) {
+            const secs = parseInt(msg.split(':')[1] ?? '30', 10)
+            setMonetagCooldown(secs)
+          } else {
+            setError(msg)
+            hapticError()
+          }
+        })
+        .finally(() => setMonetagLoading(false))
+    } catch {
+      setMonetagLoading(false)
+      setError('No ads available right now, try again later')
+      hapticError()
+    }
+  }
+
   useEffect(() => {
     if (adCooldown <= 0) return
     const timer = setInterval(() => setAdCooldown(c => Math.max(0, c - 1)), 1000)
     return () => clearInterval(timer)
   }, [adCooldown])
+
+  useEffect(() => {
+    if (monetagCooldown <= 0) return
+    const timer = setInterval(() => setMonetagCooldown(c => Math.max(0, c - 1)), 1000)
+    return () => clearInterval(timer)
+  }, [monetagCooldown])
 
   const handleBuyBoost = async () => {
     if (boostLoading || !user || user.stars < SPIN_BOOST_COST_STARS) return
@@ -994,6 +1099,10 @@ export function SpinPage() {
           onWatchAd={handleWatchAd}
           loading={adLoading}
           adCooldown={adCooldown}
+          onWatchMonetagAd={handleWatchMonetagAd}
+          monetagLoading={monetagLoading}
+          monetagCooldown={monetagCooldown}
+          monetagReady={monetagReady}
           stars={user?.stars ?? 0}
           onBuyBoost={handleBuyBoost}
           onBuyCharm={handleBuyCharm}

@@ -1,6 +1,7 @@
 import { HeadContent, Scripts, createRootRoute, Outlet } from '@tanstack/react-router'
 import { BottomNav } from '../components/BottomNav.js'
 import { MonetagPush } from '../components/MonetagPush.js'
+import { MonetagLoader } from '../components/MonetagLoader.js'
 import '../styles.css'
 
 export const Route = createRootRoute({
@@ -28,6 +29,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body style={{ margin: 0, background: '#0a0a1a', color: '#e2e8f0', overscrollBehavior: 'none' }}>
         <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100dvh', position: 'relative' }}>
+          <MonetagLoader />
           <MonetagPush />
           {children}
           <BottomNav />

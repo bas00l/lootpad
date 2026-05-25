@@ -55,7 +55,6 @@ export const completeTask = createServerFn({ method: 'POST' })
     if (!taskRows.length) throw new Error('Task not found')
     const task = taskRows[0]
 
-    // Idempotent: if already completed just return success silently
     const existing = await db
       .select()
       .from(taskCompletions)
@@ -64,10 +63,9 @@ export const completeTask = createServerFn({ method: 'POST' })
 
     if (existing.length > 0) throw new Error('Already completed')
 
-    // Record completion
     await db.insert(taskCompletions).values({ userId: user.id, taskId: task.id })
 
-    // Award token balance
+    // Award token reward
     await db
       .insert(tokenBalances)
       .values({ userId: user.id, token: task.rewardToken, amount: task.rewardAmount })
@@ -82,98 +80,27 @@ export const completeTask = createServerFn({ method: 'POST' })
     // Award stars + XP + spins
     const xpReward    = task.xpReward    ?? 0
     const spinsReward = task.spinsReward ?? 0
-    const newXP    = (user.xp ?? 0) + xpReward
+    const newXP    = user.xp + xpReward
     const newLevel = getLevelFromXP(newXP)
-    const newStars = (user.stars ?? 0) + (task.starsReward ?? 0)
-    const newSpins = (user.spinsAvailable ?? 0) + spinsReward
 
     await db
       .update(users)
       .set({
-        stars:          newStars,
+        stars:          user.stars + task.starsReward,
         xp:             newXP,
         level:          newLevel,
-        spinsAvailable: newSpins,
-        tasksCompleted: sql`${users.tasksCompleted} + 1`,
+        spinsAvailable: user.spinsAvailable + spinsReward,
+        tasksCompleted: (user.tasksCompleted ?? 0) + 1,
         updatedAt:      new Date(),
       })
       .where(eq(users.id, user.id))
 
     return {
       rewardToken:  task.rewardToken,
-      rewardAmount: String(task.rewardAmount),
-      starsReward:  task.starsReward ?? 0,
+      rewardAmount: task.rewardAmount,
+      starsReward:  task.starsReward,
       xpReward,
       spinsReward,
-      newStars,
-      newXP,
       newLevel,
-      newSpins,
     }
-  }))
-
-// Admin: add a new task
-export const addTask = createServerFn({ method: 'POST' })
-  .inputValidator(z.object({
-    adminTelegramId: z.string(),
-    title: z.string().min(1).max(120),
-    description: z.string().min(1).max(300),
-    taskType: z.enum(['telegram_join', 'twitter_follow', 'website_visit', 'youtube_watch', 'discord_join', 'instagram_follow', 'tiktok_follow', 'custom']),
-    url: z.string().url(),
-    rewardToken: z.string(),
-    rewardAmount: z.string(),
-    starsReward: z.number().int().min(0).default(10),
-    xpReward: z.number().int().min(0).default(15),
-    spinsReward: z.number().int().min(0).default(0),
-    sortOrder: z.number().int().min(0).default(99),
-  }))
-  .handler(({ data }) => withServerError(async () => {
-    const adminId = process.env.ADMIN_TELEGRAM_ID ?? process.env.VITE_ADMIN_TELEGRAM_ID
-    if (!adminId || data.adminTelegramId !== adminId) {
-      throw new Error('Unauthorized')
-    }
-
-    const [inserted] = await db
-      .insert(tasks)
-      .values({
-        title: data.title,
-        description: data.description,
-        taskType: data.taskType,
-        url: data.url,
-        rewardToken: data.rewardToken,
-        rewardAmount: data.rewardAmount,
-        starsReward: data.starsReward,
-        xpReward: data.xpReward,
-        spinsReward: data.spinsReward,
-        isActive: true,
-        isDailyQuest: false,
-        sortOrder: data.sortOrder,
-      })
-      .returning()
-
-    return inserted
-  }))
-
-// Admin: toggle task active/inactive
-export const toggleTask = createServerFn({ method: 'POST' })
-  .inputValidator(z.object({
-    adminTelegramId: z.string(),
-    taskId: z.number().int(),
-    isActive: z.boolean(),
-  }))
-  .handler(({ data }) => withServerError(async () => {
-    const adminId = process.env.ADMIN_TELEGRAM_ID ?? process.env.VITE_ADMIN_TELEGRAM_ID
-    if (!adminId || data.adminTelegramId !== adminId) throw new Error('Unauthorized')
-
-    await db.update(tasks).set({ isActive: data.isActive }).where(eq(tasks.id, data.taskId))
-    return { ok: true }
-  }))
-
-// Admin: get all tasks including inactive
-export const getAllTasksAdmin = createServerFn({ method: 'GET' })
-  .inputValidator(z.object({ adminTelegramId: z.string() }))
-  .handler(({ data }) => withServerError(async () => {
-    const adminId = process.env.ADMIN_TELEGRAM_ID ?? process.env.VITE_ADMIN_TELEGRAM_ID
-    if (!adminId || data.adminTelegramId !== adminId) throw new Error('Unauthorized')
-    return db.select().from(tasks).orderBy(tasks.sortOrder)
   }))
