@@ -773,7 +773,7 @@ export function SpinPage() {
           xp: result.newXP,
           level: result.newLevel,
         } : u)
-        setAdCooldown(30)
+        setAdCooldown(5)
         hapticSuccess()
       })
       .catch((e) => {
