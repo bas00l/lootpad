@@ -267,31 +267,6 @@ function AdsgramTasksSection({ tgId, onReward }: {
   )
 }
 
-// ── AdsGram Tasks Section ─────────────────────────────────────────────────────
-function AdsgramTasksSection({ tgId, onReward }: {
-  tgId:     string
-  onReward: (r: { spinsReward: number; starsReward: number; xpReward: number }) => void
-}) {
-  const blocks = parseAdsgramBlocks()
-  if (blocks.length === 0) return null
-
-  return (
-    <div>
-      <p style={{
-        fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
-        letterSpacing: '0.08em', color: '#f59e0b', marginBottom: 10,
-      }}>
-        📺 Sponsored Tasks
-      </p>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {blocks.map((cfg) => (
-          <AdsgramTaskCard key={cfg.blockId} cfg={cfg} tgId={tgId} onReward={onReward} />
-        ))}
-      </div>
-    </div>
-  )
-}
-
 // ── Reward Toast ─────────────────────────────────────────────────────────────
 function RewardToast({ result, onClose }: { result: RewardResult; onClose: () => void }) {
   const cfg = TOKENS[result.rewardToken as keyof typeof TOKENS]
