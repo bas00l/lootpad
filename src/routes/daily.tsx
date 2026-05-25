@@ -1,38 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useServerFn } from '@tanstack/react-start'
 import { claimDailyReward, getDailyStatus } from '../server/daily.functions.js'
-import { earnSpinsFromAd } from '../server/spin.functions.js'
 import { getTelegramUserId, hapticSuccess, hapticError, hapticSelect } from '../lib/telegram.js'
 import { DAILY_REWARD_STARS, TOKENS } from '../lib/constants.js'
 
 export const Route = createFileRoute('/daily')({
   component: DailyPage,
 })
-
-// ── Monetag interstitial ─────────────────────────────────────────────────────
-// Zone ID is read from env so it can be swapped without touching code.
-// Falls back to the hardcoded zone already in __root.tsx (11049772).
-const MONETAG_ZONE = (import.meta.env.VITE_MONETAG_ZONE_ID as string | undefined)?.trim() ?? '11049772'
-const MONETAG_FN   = `show_${MONETAG_ZONE}`
-
-/** Returns true if the Monetag SDK function is already on window. */
-function moneTagReady(): boolean {
-  return typeof (window as any)[MONETAG_FN] === 'function'
-}
-
-/** Show a Monetag interstitial. Resolves when the ad completes, rejects on error / no fill. */
-function showMonetagInterstitial(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (!moneTagReady()) { reject(new Error('SDK not ready')); return }
-    ;(window as any)[MONETAG_FN]().then(resolve).catch(reject)
-  })
-}
-
-// Bonus for watching a Monetag ad on the daily page
-const MONETAG_BONUS_STARS = 5
-const MONETAG_DAILY_LIMIT = 3     // max ad rewards per calendar day
-const MONETAG_COOLDOWN_S  = 120   // 2-minute cooldown between ads
 
 // ── Helper ───────────────────────────────────────────────────────────────────
 function formatTime(seconds: number): string {
@@ -44,159 +19,20 @@ function formatTime(seconds: number): string {
   return `${s}s`
 }
 
-// ── Monetag Ad Button ─────────────────────────────────────────────────────────
-function MonetagAdButton({ tgId, onRewarded }: { tgId: string; onRewarded: (stars: number) => void }) {
-  const [state, setState]       = useState<'idle' | 'loading' | 'cooldown' | 'limit'>('idle')
-  const [cooldown, setCooldown] = useState(0)
-  const [adsToday, setAdsToday] = useState(0)
-  const [errMsg, setErrMsg]     = useState('')
-  const timerRef                = useRef<ReturnType<typeof setInterval> | null>(null)
-  const earnSpinsFn             = useServerFn(earnSpinsFromAd)
-
-  // Restore today's ad count from sessionStorage (resets on browser close = new session = new day)
-  useEffect(() => {
-    const key  = `monetag_daily_${new Date().toDateString()}`
-    const saved = parseInt(sessionStorage.getItem(key) ?? '0', 10)
-    if (saved >= MONETAG_DAILY_LIMIT) setState('limit')
-    setAdsToday(saved)
-  }, [])
-
-  // Cooldown tick
-  useEffect(() => {
-    if (cooldown <= 0) { timerRef.current && clearInterval(timerRef.current); return }
-    timerRef.current = setInterval(() => {
-      setCooldown(c => {
-        if (c <= 1) { setState('idle'); return 0 }
-        return c - 1
-      })
-    }, 1000)
-    return () => { timerRef.current && clearInterval(timerRef.current) }
-  }, [cooldown])
-
-  const handleWatch = useCallback(async () => {
-    if (state !== 'idle') return
-    setErrMsg('')
-    setState('loading')
-    hapticSelect()
-
-    try {
-      await showMonetagInterstitial()
-
-      // Ad completed — credit reward
-      // Also call earnSpinsFromAd so the server tracks the watch
-      try {
-        await earnSpinsFn({ data: { telegramId: tgId } })
-      } catch { /* spin credit is best-effort */ }
-
-      const newCount = adsToday + 1
-      setAdsToday(newCount)
-      const key = `monetag_daily_${new Date().toDateString()}`
-      sessionStorage.setItem(key, String(newCount))
-
-      if (newCount >= MONETAG_DAILY_LIMIT) {
-        setState('limit')
-      } else {
-        setCooldown(MONETAG_COOLDOWN_S)
-        setState('cooldown')
-      }
-
-      onRewarded(MONETAG_BONUS_STARS)
-      hapticSuccess()
-
-    } catch (err) {
-      const msg = String((err as any)?.message ?? err)
-      console.warn('Monetag daily ad error:', msg)
-      // Don't penalise user for no-fill — just go back to idle
-      setState('idle')
-      if (!msg.includes('SDK not ready')) setErrMsg('No ad available right now — try again later')
-      hapticError()
-    }
-  }, [state, adsToday, tgId, onRewarded, earnSpinsFn])
-
-  if (state === 'limit') return null   // silently hide once daily limit reached
-
-  return (
-    <div style={{
-      background: 'linear-gradient(135deg, #1a1030, #12082a)',
-      border: '1px solid #6d28d930',
-      borderRadius: 14,
-      padding: '14px 16px',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        {/* Icon */}
-        <div style={{
-          width: 44, height: 44, borderRadius: 12, flexShrink: 0,
-          background: '#2d1b4e', border: '1px solid #7c3aed40',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 22,
-        }}>
-          📺
-        </div>
-
-        {/* Info */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontWeight: 700, fontSize: 13, color: '#fff', margin: '0 0 3px' }}>
-            Watch an ad for bonus stars
-          </p>
-          <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 7px', lineHeight: 1.4 }}>
-            {MONETAG_DAILY_LIMIT - adsToday} watch{MONETAG_DAILY_LIMIT - adsToday !== 1 ? 'es' : ''} remaining today
-          </p>
-          <div style={{ display: 'flex', gap: 5 }}>
-            <span style={{ background: '#2d2000', color: '#fbbf24', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
-              +{MONETAG_BONUS_STARS} ⭐
-            </span>
-            <span style={{ background: '#1e1040', color: '#c4b5fd', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
-              +1 🎫 spin
-            </span>
-          </div>
-          {errMsg && <p style={{ fontSize: 10, color: '#f87171', marginTop: 5, fontStyle: 'italic' }}>{errMsg}</p>}
-        </div>
-
-        {/* Button */}
-        <div style={{ flexShrink: 0 }}>
-          {state === 'loading' ? (
-            <div style={{ padding: '9px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700, background: '#1a1a3a', color: '#a78bfa', whiteSpace: 'nowrap' }}>
-              ⏳ Loading…
-            </div>
-          ) : state === 'cooldown' ? (
-            <div style={{ padding: '9px 14px', borderRadius: 10, fontSize: 12, fontWeight: 700, background: '#13132b', color: '#6b7280', border: '1px solid #2e2e60', whiteSpace: 'nowrap', textAlign: 'center' }}>
-              ⏰ {formatTime(cooldown)}
-            </div>
-          ) : (
-            <button
-              onClick={handleWatch}
-              style={{
-                padding: '9px 18px', borderRadius: 10, fontSize: 12, fontWeight: 700,
-                background: 'linear-gradient(135deg, #7c3aed, #5b21b6)',
-                color: '#fff', border: '1px solid #6d28d9',
-                cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
-              }}
-            >
-              ▶ Watch
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Main Page ─────────────────────────────────────────────────────────────────
 function DailyPage() {
-  const [streak, setStreak]   = useState(0)
+  const [streak, setStreak]     = useState(0)
   const [canClaim, setCanClaim] = useState(false)
-  const [nextIn, setNextIn]   = useState(0)
+  const [nextIn, setNextIn]     = useState(0)
   const [claiming, setClaiming] = useState(false)
-  const [result, setResult]   = useState<{
+  const [result, setResult]     = useState<{
     starsReward: number; newStreak: number; bonusToken: string; bonusAmount: number
   } | null>(null)
-  const [error, setError]     = useState<string | null>(null)
-  const [bonusStars, setBonusStars] = useState(0)   // accumulated from Monetag watches today
+  const [error, setError]       = useState<string | null>(null)
 
   const getDailyStatusFn = useServerFn(getDailyStatus)
   const claimFn          = useServerFn(claimDailyReward)
-
-  const tgId = getTelegramUserId()
+  const tgId             = getTelegramUserId()
 
   useEffect(() => {
     getDailyStatusFn({ data: { telegramId: tgId } }).then((s) => {
@@ -301,38 +137,6 @@ function DailyPage() {
           </button>
         )}
         {error && <p className="text-red-400 text-xs text-center mt-2">{error}</p>}
-      </div>
-
-      {/* ── Monetag bonus ad section ────────────────────────────────────────── */}
-      <div>
-        <p style={{
-          fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
-          letterSpacing: '0.08em', color: '#7c3aed', marginBottom: 8,
-        }}>
-          💜 Bonus Stars
-        </p>
-
-        <MonetagAdButton
-          tgId={tgId}
-          onRewarded={(stars) => {
-            setBonusStars(b => b + stars)
-          }}
-        />
-
-        {/* Running tally of bonus stars earned today */}
-        {bonusStars > 0 && (
-          <div className="bounce-in" style={{
-            marginTop: 8,
-            background: '#2d2000', border: '1px solid #f59e0b50',
-            borderRadius: 10, padding: '8px 14px',
-            display: 'flex', alignItems: 'center', gap: 8,
-          }}>
-            <span style={{ fontSize: 18 }}>⭐</span>
-            <p style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24', margin: 0 }}>
-              +{bonusStars} bonus stars earned today!
-            </p>
-          </div>
-        )}
       </div>
 
       {/* How it works */}

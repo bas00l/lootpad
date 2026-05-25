@@ -38,9 +38,6 @@ import {
   MIN_ACTIVITY_SPINS, MIN_ACTIVITY_ADS, WITHDRAWAL_STAR_FEE_PCT,
 } from '../lib/constants.js'
 import type { Rarity } from '../lib/constants.js'
-// Monetag SDK is loaded via CDN script tag in __root.tsx
-// The script exposes window.show_XXXXXXX() for rewarded interstitials
-
 export const Route = createFileRoute('/')({ component: SpinPage })
 
 async function buildDeviceFingerprint(): Promise<string> {
@@ -60,20 +57,7 @@ async function buildDeviceFingerprint(): Promise<string> {
   }
 }
 
-// Monetag rewarded interstitial — CDN SDK loaded via <script> in __root.tsx.
-// The script injects show_11049772({ ymid?, type? }) into window.
-// Docs: https://docs.monetag.com/docs/ad-integration/rewarded-interstitial/
-const MONETAG_ZONE = 11049772
-type MonetagOpts = { type?: 'preload'; ymid?: string }
-type MonetagShowFn = (opts?: MonetagOpts) => Promise<void>
-
-function moneTagAdHandler(opts?: MonetagOpts): Promise<void> {
-  const showFn = (window as Record<string, unknown>)[`show_${MONETAG_ZONE}`] as MonetagShowFn | undefined
-  if (typeof showFn !== 'function') {
-    return Promise.reject(new Error('Monetag SDK not ready'))
-  }
-  return showFn(opts)
-}
+// Ad network: Adsgram only (Monetag passive CPM via MonetagPush component)
 
 interface UserState {
   id: number
@@ -693,8 +677,6 @@ export function SpinPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [adLoading, setAdLoading] = useState(false)
-  // Alternates between 'adsgram' and 'monetag' on each tap
-  const adNetworkRef = useRef<'adsgram' | 'monetag'>('adsgram')
   const [adCooldown, setAdCooldown] = useState(0)
   const [boostLoading, setBoostLoading] = useState(false)
   const [charmLoading, setCharmLoading] = useState(false)
@@ -756,13 +738,6 @@ export function SpinPage() {
     bootstrap()
   }, [])
 
-  // Call earnSpinsFromAd directly (bypasses stale useServerFn hook closure)
-  // Preload Monetag ad on mount so it shows instantly when tapped
-  useEffect(() => {
-    moneTagAdHandler({ type: 'preload', ymid: tgId })
-      .then(() => setMonetagReady(true))
-      .catch(() => { /* preload failed, will try on tap */ })
-  }, [])
 
   const handleAdRewarded = useCallback((id: string) => {
     earnSpinsFromAd({ data: { telegramId: id } })
@@ -855,44 +830,19 @@ export function SpinPage() {
     setAdLoading(true)
     hapticSelect()
 
-    // Alternate networks each tap
-    const network = adNetworkRef.current
-    adNetworkRef.current = network === 'adsgram' ? 'monetag' : 'adsgram'
-
-    if (network === 'monetag') {
-      try {
-        await moneTagAdHandler({ ymid: tgId })
+    try {
+      const ctrl = getAdsgramController()
+      if (!ctrl) throw new Error('Adsgram not ready')
+      const result = await ctrl.show()
+      if (result.done) {
         handleAdRewarded(tgId)
-      } catch {
-        // Monetag failed/skipped — always fall back to Adsgram
-        try {
-          const ctrl = getAdsgramController()
-          if (!ctrl) throw new Error('Adsgram not ready')
-          const result = await ctrl.show()
-          if (result.done) handleAdRewarded(tgId)
-          else setAdLoading(false) // skipped
-        } catch {
-          setAdLoading(false)
-          setError('No ads available right now, try again later')
-        }
+      } else {
+        // User skipped — no reward
+        setAdLoading(false)
       }
-    } else {
-      try {
-        const ctrl = getAdsgramController()
-        if (!ctrl) throw new Error('Adsgram not ready')
-        const result = await ctrl.show()
-        if (result.done) handleAdRewarded(tgId)
-        else setAdLoading(false) // user skipped — no fallback, no reward
-      } catch {
-        // Adsgram error/no-fill — fall back to Monetag
-        try {
-          await moneTagAdHandler({ ymid: tgId })
-          handleAdRewarded(tgId)
-        } catch {
-          setAdLoading(false)
-          setError('No ads available right now, try again later')
-        }
-      }
+    } catch {
+      setAdLoading(false)
+      setError('No ads available right now, try again later')
     }
   }
 

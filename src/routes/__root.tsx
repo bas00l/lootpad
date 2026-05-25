@@ -1,5 +1,6 @@
 import { HeadContent, Scripts, createRootRoute, Outlet } from '@tanstack/react-router'
 import { BottomNav } from '../components/BottomNav.js'
+import { MonetagPush } from '../components/MonetagPush.js'
 import '../styles.css'
 
 export const Route = createRootRoute({
@@ -14,7 +15,6 @@ export const Route = createRootRoute({
     scripts: [
       { src: 'https://telegram.org/js/telegram-web-app.js' },
       { src: 'https://sad.adsgram.ai/js/sad.min.js' },
-      { src: 'https://libtl.com/sdk.js?zone=11049772&sdk=show_11049772' },
     ],
   }),
   shellComponent: RootDocument,
@@ -28,6 +28,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body style={{ margin: 0, background: '#0a0a1a', color: '#e2e8f0', overscrollBehavior: 'none' }}>
         <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100dvh', position: 'relative' }}>
+          <MonetagPush />
           {children}
           <BottomNav />
         </div>
